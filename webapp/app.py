@@ -790,6 +790,241 @@ def calculadora():
     return render_template('calculadora.html', tipo=tipo, query=query_str, results=results,
                            summary=summary, benchmarks=benchmarks, persona_tmdb=persona_tmdb)
 
+@app.route('/api/anual/percentiles')
+def api_anual_percentiles():
+    """
+    Returns percentile thresholds and aggregated stats for every year in anual_esp.
+    Used by the percentile distribution chart + stat cards.
+    """
+    try:
+        rows = query("""
+            WITH thresholds AS (
+                SELECT anio,
+                    COUNT(*) FILTER (WHERE recaudacion IS NOT NULL) AS total,
+                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY recaudacion) AS p25_rec,
+                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY recaudacion) AS p50_rec,
+                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY recaudacion) AS p75_rec,
+                    PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY recaudacion) AS p90_rec,
+                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY espectadores) AS p25_esp,
+                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY espectadores) AS p50_esp,
+                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY espectadores) AS p75_esp,
+                    PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY espectadores) AS p90_esp
+                FROM anual_esp
+                GROUP BY anio
+            )
+            SELECT
+                t.anio,
+                t.total,
+                ROUND(t.p25_rec::numeric, 0) AS thr_p25_rec,
+                ROUND(t.p50_rec::numeric, 0) AS thr_p50_rec,
+                ROUND(t.p75_rec::numeric, 0) AS thr_p75_rec,
+                ROUND(t.p90_rec::numeric, 0) AS thr_p90_rec,
+                ROUND(t.p25_esp::numeric, 0) AS thr_p25_esp,
+                ROUND(t.p50_esp::numeric, 0) AS thr_p50_esp,
+                ROUND(t.p75_esp::numeric, 0) AS thr_p75_esp,
+                ROUND(t.p90_esp::numeric, 0) AS thr_p90_esp,
+                -- P90+ (above 90th percentile of rec)
+                COUNT(a.rank) FILTER (WHERE a.recaudacion >= t.p90_rec) AS count_p90,
+                ROUND(AVG(a.recaudacion) FILTER (WHERE a.recaudacion >= t.p90_rec)::numeric, 0) AS avg_rec_p90,
+                ROUND(AVG(a.espectadores) FILTER (WHERE a.recaudacion >= t.p90_rec)::numeric, 0) AS avg_esp_p90,
+                -- P75+
+                COUNT(a.rank) FILTER (WHERE a.recaudacion >= t.p75_rec) AS count_p75,
+                ROUND(AVG(a.recaudacion) FILTER (WHERE a.recaudacion >= t.p75_rec)::numeric, 0) AS avg_rec_p75,
+                ROUND(AVG(a.espectadores) FILTER (WHERE a.recaudacion >= t.p75_rec)::numeric, 0) AS avg_esp_p75,
+                -- P50+
+                COUNT(a.rank) FILTER (WHERE a.recaudacion >= t.p50_rec) AS count_p50,
+                ROUND(AVG(a.recaudacion) FILTER (WHERE a.recaudacion >= t.p50_rec)::numeric, 0) AS avg_rec_p50,
+                ROUND(AVG(a.espectadores) FILTER (WHERE a.recaudacion >= t.p50_rec)::numeric, 0) AS avg_esp_p50,
+                -- P25+
+                COUNT(a.rank) FILTER (WHERE a.recaudacion >= t.p25_rec) AS count_p25,
+                ROUND(AVG(a.recaudacion) FILTER (WHERE a.recaudacion >= t.p25_rec)::numeric, 0) AS avg_rec_p25,
+                ROUND(AVG(a.espectadores) FILTER (WHERE a.recaudacion >= t.p25_rec)::numeric, 0) AS avg_esp_p25,
+                -- Totales anuales (para la línea de recaudación)
+                ROUND(SUM(a.recaudacion)::numeric, 0) AS total_rec_anio,
+                COALESCE(SUM(a.espectadores::bigint), 0) AS total_esp_anio
+            FROM thresholds t
+            LEFT JOIN anual_esp a ON a.anio = t.anio
+            GROUP BY t.anio, t.total,
+                     t.p25_rec, t.p50_rec, t.p75_rec, t.p90_rec,
+                     t.p25_esp, t.p50_esp, t.p75_esp, t.p90_esp
+            ORDER BY t.anio
+        """)
+    except Exception:
+        return jsonify([])
+
+    serialised = []
+    for r in rows:
+        item = {'anio': r['anio'], 'total': r['total']}
+        for k, v in r.items():
+            if k in ('anio', 'total'):
+                continue
+            item[k] = float(v) if v is not None else None
+        serialised.append(item)
+
+    return jsonify(serialised)
+
+
+@app.route('/api/anual/search')
+def api_anual_search():
+    """Búsqueda de texto libre en anual_esp. Devuelve hasta 50 resultados."""
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+
+    rows = query("""
+        SELECT anio, rank, titulo, distribuidora, fecha_estreno, recaudacion, espectadores
+        FROM anual_esp
+        WHERE titulo ILIKE %s
+           OR distribuidora ILIKE %s
+        ORDER BY recaudacion DESC NULLS LAST
+        LIMIT 50
+    """, (f'%{q}%', f'%{q}%'))
+
+    return jsonify([{
+        'anio':          r['anio'],
+        'rank':          r['rank'],
+        'titulo':        r['titulo'],
+        'distribuidora': r['distribuidora'] or '',
+        'fecha_estreno': r['fecha_estreno'].isoformat() if r['fecha_estreno'] else None,
+        'recaudacion':   float(r['recaudacion']) if r['recaudacion'] is not None else None,
+        'espectadores':  r['espectadores'],
+    } for r in rows])
+
+
+@app.route('/api/anual')
+def api_anual():
+    """JSON endpoint for anual_esp data — used by the front-end filter block."""
+    years = get_anual_esp_years()
+    if not years:
+        return jsonify({'rows': [], 'years': []})
+
+    try:
+        anio = int(request.args.get('anio', years[0]))
+    except (ValueError, TypeError):
+        anio = years[0]
+
+    orden = request.args.get('orden', 'rank')
+
+    rows = get_anual_esp(anio, orden)
+
+    # Serialise dates and Decimals for JSON
+    serialised = []
+    for r in rows:
+        serialised.append({
+            'rank':          r['rank'],
+            'titulo':        r['titulo'],
+            'distribuidora': r['distribuidora'] or '',
+            'fecha_estreno': r['fecha_estreno'].isoformat() if r['fecha_estreno'] else None,
+            'recaudacion':   float(r['recaudacion']) if r['recaudacion'] is not None else None,
+            'espectadores':  r['espectadores'],
+        })
+
+    return jsonify({'rows': serialised, 'years': years, 'anio': anio, 'orden': orden})
+
+
+@app.route('/api/decay_curve')
+def api_decay_curve():
+    """
+    Curva de decaimiento promedio para películas que fueron nº1 algún fin de semana.
+    """
+    tab = request.args.get('tab', 'top25')
+    table = 'top25' if tab == 'top25' else 'topespanol'
+
+    try:
+        rows = query(f"""
+            WITH weekend_totals AS (
+                SELECT fecha_inicio,
+                       SUM(recaudacion) AS total_rec
+                FROM {table}
+                GROUP BY fecha_inicio
+            ),
+            ever_number_one AS (
+                SELECT DISTINCT titulo, distribuidora
+                FROM {table}
+                WHERE rank = 1
+            ),
+            film_run AS (
+                SELECT titulo, distribuidora,
+                       SUM(recaudacion) AS total_10sem
+                FROM {table}
+                WHERE semana BETWEEN 1 AND 10
+                  AND recaudacion IS NOT NULL
+                GROUP BY titulo, distribuidora
+            ),
+            film_weeks AS (
+                SELECT t.titulo,
+                       t.distribuidora,
+                       t.semana,
+                       CASE WHEN wt.total_rec > 0
+                            THEN t.recaudacion / wt.total_rec * 100.0
+                            ELSE NULL END AS pct_weekend,
+                       SUM(t.recaudacion) OVER (
+                           PARTITION BY t.titulo, t.distribuidora
+                           ORDER BY t.semana
+                           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                       ) / NULLIF(fr.total_10sem, 0) * 100.0 AS cum_pct_run
+                FROM {table} t
+                JOIN weekend_totals wt ON wt.fecha_inicio = t.fecha_inicio
+                JOIN ever_number_one e
+                  ON e.titulo = t.titulo AND e.distribuidora = t.distribuidora
+                JOIN film_run fr
+                  ON fr.titulo = t.titulo AND fr.distribuidora = t.distribuidora
+                WHERE t.semana IS NOT NULL
+                  AND t.semana BETWEEN 1 AND 10
+                  AND t.recaudacion IS NOT NULL
+            )
+            SELECT semana,
+                   ROUND(AVG(pct_weekend)::numeric, 2)  AS avg_pct,
+                   ROUND(AVG(cum_pct_run)::numeric, 2)  AS avg_cum_pct,
+                   COUNT(*)                              AS num_obs
+            FROM film_weeks
+            GROUP BY semana
+            ORDER BY semana
+        """)
+    except Exception:
+        return jsonify([])
+
+    return jsonify([{
+        'semana':       r['semana'],
+        'avg_pct':      float(r['avg_pct'])     if r['avg_pct']     is not None else None,
+        'avg_cum_pct':  float(r['avg_cum_pct']) if r['avg_cum_pct'] is not None else None,
+        'num_obs':      r['num_obs'],
+    } for r in rows])
+
+
+@app.route('/api/ranking')
+def api_ranking():
+    """JSON API endpoint for ranking data."""
+    tab = request.args.get('tab', 'top25')
+    table = 'top25' if tab == 'top25' else 'topespanol'
+
+    weeks = get_available_weeks(table)
+    if not weeks:
+        return jsonify([])
+
+    week_param = request.args.get('semana')
+    if week_param:
+        try:
+            fi, ff = week_param.split('_')
+            semana = (date.fromisoformat(fi), date.fromisoformat(ff))
+        except (ValueError, AttributeError):
+            semana = weeks[0]
+    else:
+        semana = weeks[0]
+
+    ranking = get_weekly_ranking(table, semana[0], semana[1])
+
+    # Convert dates to strings for JSON
+    for r in ranking:
+        for k, v in r.items():
+            if isinstance(v, date):
+                r[k] = v.isoformat()
+            elif isinstance(v, Decimal):
+                r[k] = float(v)
+
+    return jsonify(ranking)
+
+
 @app.route('/pelicula/<expediente_icaa>')
 def detalle_pelicula(expediente_icaa):
     res = query("SELECT * FROM icaa_fichas WHERE expediente_icaa = %s", [expediente_icaa])
