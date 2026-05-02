@@ -1,0 +1,69 @@
+# ─── Entornos virtuales ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.Python
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ─── Variables de entorno / secretos ─────────────────────────────────────────
+# NUNCA subir .env — usa .env.example como plantilla
+.env
+*.env
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+icaa_pipeline.log
+errors.log
+scraper.log
+
+# ─── Datos masivos (no van en git) ───────────────────────────────────────────
+pdfs/
+csv/
+
+# ─── macOS ───────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.smbdelete*
+.smbdeleteAAA*
+
+# ─── Scraper ICAA: archivos temporales y de debug ────────────────────────────
+scraper_icaa/peliculas_*.json
+scraper_icaa/resultado_*.json
+scraper_icaa/mapper_*.json
+scraper_icaa/id_mapeo_final.json
+scraper_icaa/debug_*.html
+scraper_icaa/test_*
+scraper_icaa/partial_*.html
+scraper_icaa/LAST_REORT.html
+scraper_icaa/downloaded_ids.txt
+scraper_icaa/top50_titles.txt
+scraper_icaa/scraper.log
+scraper_icaa/*.pdf
+scraper_icaa/.archive/
+scraper_icaa/html_sources/
+# Carpeta duplicada anidada
+scraper_icaa/scraper_icaa/
+
+# ─── IDEs y editores ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Otros ───────────────────────────────────────────────────────────────────
+*.sqlite3
+*.db

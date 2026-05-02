@@ -1,0 +1,1650 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taquilla España</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' fill='%23e94560' viewBox='0 0 16 16'><path d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1 a1 1 0 0 1-1-1zm4 0v6h8V1zm8 8H4v6h8zM1 1v2h2V1zm2 3H1v2h2zM1 7v2h2V7zm2 3H1v2h2zm-2 3v2h2v-2zM15 1h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2z'/></svg>">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --color-primary: #1a1a2e;
+            --color-secondary: #16213e;
+            --color-accent: #e94560;
+            --color-accent-light: #ff6b81;
+            --color-gold: #f5c518;
+            --color-muted: #6c757d;
+        }
+
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+        /* Navbar */
+        .navbar-brand { font-weight: 800; font-size: 1.4rem; letter-spacing: -0.5px; }
+        .navbar-brand .bi-film { color: var(--color-accent); }
+
+        /* Stats cards */
+        .stat-card {
+            background: var(--color-primary); color: white;
+            border-radius: 12px; padding: 1.2rem; text-align: center;
+            transition: transform 0.15s;
+        }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-card .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--color-gold); }
+        .stat-card .stat-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
+
+        /* Week selector */
+        .week-selector {
+            background: white; border-radius: 12px;
+            padding: 1rem 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        /* Tab pills */
+        .nav-pills .nav-link { color: var(--color-primary); font-weight: 600; border-radius: 8px; padding: 0.5rem 1.2rem; }
+        .nav-pills .nav-link.active { background-color: var(--color-accent); }
+
+        /* Card block */
+        .card-block {
+            background: white; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .card-block-header {
+            background: var(--color-primary); color: white;
+            padding: 0.8rem 1.2rem; font-weight: 600; font-size: 0.95rem;
+        }
+        .card-block-header i { color: var(--color-gold); }
+
+        /* Ranking table */
+        .ranking-table { width: 100%; border-collapse: collapse; }
+        .ranking-table thead th {
+            background: var(--color-secondary); color: white;
+            font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;
+            border: none; padding: 0.6rem 0.5rem; white-space: nowrap;
+            position: sticky; top: 0; z-index: 1;
+        }
+        .ranking-table tbody td {
+            padding: 0.55rem 0.5rem; vertical-align: middle;
+            font-size: 0.85rem; border-bottom: 1px solid #f0f0f0;
+        }
+        .ranking-table tbody tr:hover { background-color: #fff8e1; }
+        .table-scroll { max-height: 520px; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+        /* Rank badge */
+        .rank-badge {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 1.7rem; height: 1.7rem; border-radius: 50%;
+            font-weight: 700; font-size: 0.78rem;
+        }
+        .rank-1 { background: var(--color-gold); color: #1a1a2e; }
+        .rank-2 { background: #c0c0c0; color: #1a1a2e; }
+        .rank-3 { background: #cd7f32; color: white; }
+        .rank-other { background: #e9ecef; color: #495057; }
+
+        .pct-up { color: #198754; font-weight: 600; }
+        .pct-down { color: var(--color-accent); font-weight: 600; }
+        .pct-neutral { color: var(--color-muted); }
+
+        .movie-title { font-weight: 600; color: var(--color-primary); line-height: 1.2; }
+        .movie-sub { font-size: 0.72rem; color: var(--color-muted); }
+        .movie-sub-italic { font-size: 0.72rem; color: var(--color-muted); font-style: italic; }
+        .sem-badge { background: #e9ecef; border-radius: 4px; padding: 1px 5px; font-size: 0.75rem; font-weight: 600; }
+
+        /* Top list */
+        .top-list { list-style: none; margin: 0; padding: 0; }
+        .top-list li {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.6rem 1rem; border-bottom: 1px solid #f0f0f0;
+            transition: background 0.1s;
+        }
+        .top-list li:last-child { border-bottom: none; }
+        .top-list li:hover { background: #fff8e1; }
+        .top-list .top-rank {
+            flex-shrink: 0; width: 1.6rem; height: 1.6rem;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 50%; font-weight: 700; font-size: 0.72rem;
+        }
+        .top-list .top-info { flex: 1; min-width: 0; }
+        .top-list .top-title {
+            font-weight: 600; font-size: 0.85rem; color: var(--color-primary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .top-list .top-meta { font-size: 0.72rem; color: var(--color-muted); }
+        .top-list .top-amount { flex-shrink: 0; text-align: right; font-weight: 700; font-size: 0.85rem; color: var(--color-primary); }
+        .top-list .top-esp { font-size: 0.7rem; color: var(--color-muted); font-weight: 400; }
+
+        /* =============================== */
+        /* INSIGHT: Concentration           */
+        /* =============================== */
+        .insight-block {
+            background: white; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .insight-header {
+            padding: 1rem 1.2rem 0.5rem;
+        }
+        .insight-header h6 { font-weight: 700; font-size: 0.95rem; color: var(--color-primary); margin: 0; }
+        .insight-header .insight-sub { font-size: 0.78rem; color: var(--color-muted); margin-top: 0.2rem; }
+        .insight-body { padding: 0.5rem 1.2rem 1.2rem; }
+
+        /* Stacked bar */
+        .stacked-bar {
+            display: flex; height: 2.2rem; border-radius: 8px; overflow: hidden;
+            margin: 0.8rem 0;
+        }
+        .stacked-bar .seg {
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.72rem; font-weight: 700; color: white;
+            transition: flex 0.3s;
+            min-width: 0;
+        }
+        .seg-1 { background: var(--color-gold); color: #1a1a2e !important; }
+        .seg-2 { background: #c0c0c0; color: #1a1a2e !important; }
+        .seg-3 { background: #cd7f32; }
+        .seg-rest { background: #e9ecef; color: #495057 !important; }
+
+        .conc-legend {
+            display: flex; flex-wrap: wrap; gap: 0.8rem; font-size: 0.78rem;
+        }
+        .conc-legend-item {
+            display: flex; align-items: center; gap: 0.3rem;
+        }
+        .conc-legend-dot {
+            width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+        }
+
+        /* =============================== */
+        /* INSIGHT: Capacity / Occupancy    */
+        /* =============================== */
+        .gauge-container { margin: 0.8rem 0; }
+        .gauge-label {
+            display: flex; justify-content: space-between; align-items: baseline;
+            font-size: 0.78rem; color: var(--color-muted); margin-bottom: 0.3rem;
+        }
+        .gauge-label .gauge-value { font-weight: 700; font-size: 1.1rem; color: var(--color-primary); }
+        .gauge-track {
+            position: relative; height: 1.6rem; background: #e9ecef;
+            border-radius: 8px; overflow: hidden;
+        }
+        .gauge-fill {
+            height: 100%; border-radius: 8px;
+            transition: width 0.5s ease;
+        }
+        .gauge-avg-marker {
+            position: absolute; top: -2px; bottom: -2px; width: 2px;
+            background: var(--color-primary); z-index: 2;
+        }
+        .gauge-avg-label {
+            position: absolute; top: -16px; font-size: 0.62rem;
+            color: var(--color-primary); font-weight: 600;
+            transform: translateX(-50%); white-space: nowrap;
+        }
+        .gauge-range {
+            display: flex; justify-content: space-between;
+            font-size: 0.65rem; color: var(--color-muted); margin-top: 0.2rem;
+        }
+
+        /* Percentile badge */
+        .percentile-badge {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.25rem 0.6rem; border-radius: 20px;
+            font-size: 0.78rem; font-weight: 700;
+        }
+        .perc-high { background: #d4edda; color: #198754; }
+        .perc-mid { background: #fff3cd; color: #856404; }
+        .perc-low { background: #f8d7da; color: #842029; }
+
+        /* Percentile cards */
+        .perc-card {
+            border-radius: 10px; padding: 1rem 1.1rem;
+            border-top: 4px solid var(--pc-color, #ccc);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+            background: white; position: relative; overflow: hidden;
+        }
+        .perc-card::before {
+            content: ''; position: absolute; top: 0; right: 0; width: 70px; height: 70px;
+            background: var(--pc-color, #ccc); opacity: 0.06; border-radius: 0 0 0 100%;
+        }
+        .perc-card .pc-badge {
+            font-size: 1.5rem; font-weight: 900; color: var(--pc-color, #ccc);
+            line-height: 1; letter-spacing: -1px;
+        }
+        .perc-card .pc-sub {
+            font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--color-muted); font-weight: 600; margin-top: 0.1rem;
+        }
+        .perc-card .pc-count {
+            font-size: 1.3rem; font-weight: 700; color: var(--color-primary); margin-top: 0.5rem;
+        }
+        .perc-card .pc-metric-row {
+            display: flex; justify-content: space-between; align-items: baseline;
+            margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid #f0f0f0;
+            font-size: 0.78rem;
+        }
+        .perc-card .pc-metric-label { color: var(--color-muted); }
+        .perc-card .pc-metric-val { font-weight: 700; color: var(--color-primary); }
+        .perc-card .pc-threshold {
+            font-size: 0.72rem; color: var(--color-muted); margin-top: 0.3rem;
+        }
+
+        /* Footer */
+        .footer { background: var(--color-primary); color: rgba(255,255,255,0.6); font-size: 0.8rem; }
+        .footer a { color: var(--color-gold); text-decoration: none; }
+        .footer a:hover { color: var(--color-accent-light); }
+
+        /* Responsive */
+        @media (max-width: 767.98px) {
+            .stat-card .stat-value { font-size: 1.3rem; }
+            .stat-card .stat-label { font-size: 0.7rem; }
+            .ranking-table thead th { font-size: 0.6rem; padding: 0.5rem 0.3rem; }
+            .ranking-table tbody td { font-size: 0.78rem; padding: 0.45rem 0.3rem; }
+            .movie-title { font-size: 0.8rem; }
+            .rank-badge { width: 1.4rem; height: 1.4rem; font-size: 0.68rem; }
+            .hide-mobile { display: none !important; }
+            .top-list .top-title { font-size: 0.8rem; }
+            .top-list .top-amount { font-size: 0.78rem; }
+            .stacked-bar .seg { font-size: 0.6rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-md navbar-dark" style="background: var(--color-primary);">
+    <div class="container">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-film"></i> Taquilla España
+        </a>
+        <div class="navbar-nav me-auto">
+            <a class="nav-link text-white" href="/calculadora">
+                <i class="bi bi-calculator"></i> Calculadora de Impacto
+            </a>
+        </div>
+        <a class="navbar-text text-white-50 d-none d-md-inline" style="font-size:0.85rem; text-decoration:none;" href="https://www.cultura.gob.es/cultura/areas/cine/datos/taquilla-espectadores.html" target="_blank">
+            Datos del Ministerio de Cultura <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i>
+        </a>
+    </div>
+</nav>
+
+<main class="container py-4">
+
+    <!-- Hero -->
+    <div class="mb-5" style="border-radius:14px; overflow:hidden; background:var(--color-primary); color:white; padding:2.2rem 2rem 2rem;">
+        <p style="font-size:0.78rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--color-accent); margin-bottom:0.5rem;">
+            Datos oficiales · Ministerio de Cultura (ICAA)
+        </p>
+        <h2 style="font-size:1.45rem; font-weight:800; line-height:1.3; margin-bottom:0.75rem;">
+            Más que números: entiende cómo funciona realmente el cine en España.
+        </h2>
+        <p style="font-size:0.92rem; line-height:1.7; opacity:0.88; margin-bottom:1.5rem; max-width:780px;">
+            Aquí no solo ves qué película lidera la taquilla. Analizamos los datos oficiales del Ministerio de Cultura para revelarte la verdadera historia detrás de cada fin de semana: por qué una película triunfa, cómo se comporta el público, qué está pasando con el cine español y qué tendencias están marcando la industria.
+        </p>
+
+        <!-- Feature pills -->
+        <div class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.8rem;">
+            <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:20px; padding:0.3rem 0.85rem;">
+                <i class="bi bi-bar-chart-fill" style="color:var(--color-accent);"></i>&nbsp; Análisis profundos y transparentes
+            </span>
+            <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:20px; padding:0.3rem 0.85rem;">
+                <i class="bi bi-calendar-range" style="color:var(--color-accent);"></i>&nbsp;
+                {% if stats %}Histórico de <strong>{{ stats.total_semanas | number }} semanas</strong> (desde {{ stats.desde | date }}){% else %}Datos históricos desde 2020{% endif %}
+            </span>
+            <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:20px; padding:0.3rem 0.85rem;">
+                <i class="bi bi-flag-fill" style="color:var(--color-accent);"></i>&nbsp; Especial atención al cine español
+            </span>
+            <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:20px; padding:0.3rem 0.85rem;">
+                <i class="bi bi-journal-text" style="color:var(--color-accent);"></i>&nbsp; Informes anuales ICAA: <strong>+4.000 películas</strong> (2016–2025)
+            </span>
+            <span style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:20px; padding:0.3rem 0.85rem;">
+                <i class="bi bi-graph-down-arrow" style="color:var(--color-accent);"></i>&nbsp; Percentiles, concentración, curvas de decaimiento y más
+            </span>
+        </div>
+
+        <!-- Tagline + last update -->
+        <div style="margin-top:1.2rem; padding-top:1rem; border-top:1px solid rgba(255,255,255,0.12); display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.75rem;">
+            <span style="font-size:0.82rem; font-style:italic; opacity:0.7;">
+                Para quienes aman el cine y quieren ir mucho más allá de los rankings superficiales.
+            </span>
+            {% if last_update %}
+            <span style="font-size:0.73rem; opacity:0.55;">
+                <i class="bi bi-clock"></i> Última actualización: {{ last_update | datetime }}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Tabs + Week selector -->
+    <div class="week-selector d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
+        <div>
+            <ul class="nav nav-pills">
+                <li class="nav-item">
+                    <a class="nav-link {% if tab == 'top25' %}active{% endif %}"
+                       href="?tab=top25{% if semana_actual %}&semana={{ semana_actual[0].isoformat() }}_{{ semana_actual[1].isoformat() }}{% endif %}">
+                        <i class="bi bi-trophy"></i> Taquilla Toda la Cartelera
+                    </a>
+                </li>
+                <li class="nav-item ms-1">
+                    <a class="nav-link {% if tab == 'topespanol' %}active{% endif %}"
+                       href="?tab=topespanol{% if semana_actual %}&semana={{ semana_actual[0].isoformat() }}_{{ semana_actual[1].isoformat() }}{% endif %}">
+                        <i class="bi bi-flag"></i> Taquilla Cine Español
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <label for="weekSelect" class="form-label mb-0 text-muted" style="font-size:0.85rem; white-space:nowrap;">
+                <i class="bi bi-calendar-week"></i> Elige semana:
+            </label>
+            <select id="weekSelect" class="form-select form-select-sm" style="max-width: 280px;"
+                    onchange="window.location.href='?tab={{ tab }}&semana='+this.value">
+                {% for year in weeks_by_year.keys() | sort(reverse=true) %}
+                <optgroup label="{{ year }}">
+                    {% for fi, ff in weeks_by_year[year] %}
+                    <option value="{{ fi.isoformat() }}_{{ ff.isoformat() }}"
+                        {% if semana_actual and fi == semana_actual[0] %}selected{% endif %}>
+                        {{ fi.strftime('%d %b') }} — {{ ff.strftime('%d %b') }}
+                    </option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- Weekly ranking table (Ranking)                                -->
+    <!-- ============================================================ -->
+    {% if ranking %}
+    <div class="card-block mb-4">
+        <div class="card-block-header">
+            <i class="bi bi-trophy"></i>
+            {% if tab == 'top25' %}Ranking Toda la Cartelera{% else %}Ranking Cine Español{% endif %}
+            — {{ semana_actual[0] | date }} al {{ semana_actual[1] | date }}
+        </div>
+        <div class="table-scroll">
+            <table class="ranking-table">
+                <thead>
+                    <tr>
+                        <th style="width:2.2rem">#</th>
+                        <th>Película</th>
+                        <th class="text-center" style="width:3rem">Sem.</th>
+                        <th class="text-end" style="width:6.5rem">Recaudación</th>
+                        <th class="text-center hide-mobile" style="width:3.5rem">%</th>
+                        <th class="text-end hide-mobile" style="width:6rem">Espectadores</th>
+                        <th class="text-end hide-mobile" style="width:6.5rem">Rec. Acum.</th>
+                        <th class="text-end hide-mobile" style="width:6rem">Esp. Acum.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in ranking %}
+                    <tr>
+                        <td>
+                            {% if r.rank <= 3 %}
+                            <span class="rank-badge rank-{{ r.rank }}">{{ r.rank }}</span>
+                            {% else %}
+                            <span class="rank-badge rank-other">{{ r.rank }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center gap-3">
+                                {% if r.poster_url %}
+                                <div class="flex-shrink-0">
+                                    <img src="{{ r.poster_url }}" alt="Poster" style="width: 45px; height: 68px; object-fit: cover; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                </div>
+                                {% endif %}
+                                <div class="flex-grow-1">
+                                    <div class="movie-title">{{ r.titulo }}</div>
+                                    {% if r.get('titulo_original') and r.titulo_original != r.titulo %}
+                                    <div class="movie-sub-italic">{{ r.titulo_original }}</div>
+                                    {% endif %}
+                                    <div class="movie-sub">{{ r.distribuidora }} · {{ r.cines | number }} cines · {{ r.pantallas | number }} pant.</div>
+                                    
+                                    {% if r.puntuacion_tmdb %}
+                                    <div class="mt-1 d-flex align-items-center gap-2" style="font-size: 0.72rem; font-weight: 600;">
+                                        <span style="color: var(--color-gold); background: rgba(245, 197, 24, 0.1); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(245, 197, 24, 0.3);">
+                                            <i class="bi bi-star-fill"></i> {{ r.puntuacion_tmdb }}
+                                        </span>
+                                        <span class="text-muted"><i class="bi bi-people-fill"></i> {{ r.votos_tmdb | number }}</span>
+                                        <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg" alt="TMDB" style="height: 10px; margin-left: 2px; opacity: 0.8;" title="Datos de TMDB">
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <span class="sem-badge">{{ r.semana }}</span>
+                        </td>
+                        <td class="text-end fw-semibold">{{ r.recaudacion | euros }}</td>
+                        <td class="text-center hide-mobile">
+                            {% set pct_val = r.get('pct_rec', None) %}
+                            {% if pct_val is not none and pct_val != '' %}
+                                {% set pv = pct_val | float %}
+                                {% if pv > 0 %}
+                                <span class="pct-up"><i class="bi bi-caret-up-fill"></i> {{ pct_val | pct }}</span>
+                                {% elif pv < 0 %}
+                                <span class="pct-down"><i class="bi bi-caret-down-fill"></i> {{ pct_val | pct }}</span>
+                                {% else %}
+                                <span class="pct-neutral">—</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="pct-neutral" style="font-size:0.72rem">new</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end hide-mobile">{{ r.total_espectadores | number }}</td>
+                        <td class="text-end hide-mobile" style="color:var(--color-muted); font-size:0.8rem;">{{ r.recaudacion_acum | euros }}</td>
+                        <td class="text-end hide-mobile" style="color:var(--color-muted); font-size:0.8rem;">{{ r.espectadores_acum | number }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <!-- TMDB Attribution Footer -->
+        <div class="px-3 py-2 border-top d-flex align-items-center justify-content-end" style="background: #fafafa; font-size: 0.65rem; color: #999;">
+            <span class="me-2">Puntuaciones y artes visuales proporcionados por</span>
+            <a href="https://www.themoviedb.org/" target="_blank">
+                <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" alt="TMDB Logo" style="height: 10px;">
+            </a>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox" style="font-size: 3rem; color: var(--color-muted);"></i>
+        <p class="text-muted mt-2">No hay datos disponibles para esta semana.</p>
+    </div>
+    {% endif %}
+
+    <!-- ============================================================ -->
+    <!-- INSIGHT 1: Concentración de taquilla (con contexto histórico) -->
+    <!-- ============================================================ -->
+    {% if concentration %}
+    <h5 class="fw-bold mb-3 mt-4"><i class="bi bi-graph-up-arrow"></i> Análisis de Concentración de Mercado</h5>
+    <div class="insight-block mb-4">
+        <!-- Header with status badge -->
+        <div class="insight-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.8rem; flex-wrap:wrap;">
+            <div>
+                <h6 style="margin:0;">
+                    <i class="bi bi-pie-chart-fill" style="color:var(--color-accent)"></i>
+                    {{ concentration.status_message }}
+                    {% if semana_actual %}
+                    <span style="font-weight:400; font-size:0.8rem; opacity:0.7;">· {{ semana_actual[0] | date }} – {{ semana_actual[1] | date }}</span>
+                    {% endif %}
+                </h6>
+                <div class="insight-sub">
+                    {{ concentration.top1_title }}: {{ concentration.seg_1 }}% de {{ concentration.total_rec | euros_short }}.
+                    {% if hist_stats %}
+                    Media {{ hist_stats.num_weeks }} semanas: {{ hist_stats.avg }}% ± {{ hist_stats.std }}%
+                    {% endif %}
+                </div>
+            </div>
+            <span class="status-badge" style="
+                background: {{ concentration.status_color }}20;
+                color: {{ concentration.status_color }};
+                border: 1.5px solid {{ concentration.status_color }};
+                padding: 0.2rem 0.7rem; border-radius: 20px;
+                font-size: 0.78rem; font-weight: 700; white-space: nowrap;
+                flex-shrink: 0;
+            ">{{ concentration.status_label }}</span>
+        </div>
+
+        <div class="insight-body">
+
+            <!-- Stacked bar with historical overlay -->
+            <div style="position:relative; margin: 1rem 0 0.3rem;">
+                {% if hist_stats %}
+                <!-- Normal zone (P25-P75) behind the bar -->
+                <div title="El 50% de los fines de semana del último año tuvieron a la nº1 entre {{ hist_stats.p25 }}% y {{ hist_stats.p75 }}%"
+                     style="position:absolute; top:-4px; bottom:-4px;
+                            left:{{ hist_stats.p25 }}%; width:{{ hist_stats.p75 - hist_stats.p25 }}%;
+                            background:rgba(56,142,60,0.10); border:1.5px dashed rgba(56,142,60,0.35);
+                            border-radius:6px; z-index:0; pointer-events:auto; cursor:help;">
+                </div>
+                <!-- Average line -->
+                <div style="position:absolute; top:-8px; bottom:-8px;
+                            left:{{ hist_stats.avg }}%; width:0; z-index:3;
+                            border-left:2px solid var(--color-primary);">
+                    <span style="position:absolute; top:-18px; left:50%;
+                                 transform:translateX(-50%); white-space:nowrap;
+                                 font-size:0.62rem; font-weight:700; color:var(--color-primary);
+                                 background:white; padding:0 3px;">
+                        Media {{ hist_stats.avg }}%
+                    </span>
+                </div>
+                {% endif %}
+
+                <!-- The stacked bar itself -->
+                <div class="stacked-bar" style="position:relative; z-index:1;">
+                    <div class="seg seg-1" style="flex:{{ concentration.seg_1 }}">
+                        {% if concentration.seg_1 > 10 %}#1: {{ concentration.seg_1 }}%{% endif %}
+                    </div>
+                    <div class="seg seg-2" style="flex:{{ concentration.seg_2_3 }}">
+                        {% if concentration.seg_2_3 > 10 %}#2-3{% endif %}
+                    </div>
+                    <div class="seg seg-3" style="flex:{{ concentration.seg_4_5 }}">
+                        {% if concentration.seg_4_5 > 10 %}#4-5{% endif %}
+                    </div>
+                    <div class="seg seg-rest" style="flex:{{ concentration.seg_rest }}">
+                        {% if concentration.seg_rest > 10 %}Resto{% endif %}
+                    </div>
+                </div>
+
+                {% if hist_stats %}
+                <!-- P25 / P75 labels -->
+                <div style="position:relative; height:14px; font-size:0.6rem; color:#388E3C; margin-top:2px;">
+                    <span style="position:absolute; left:{{ hist_stats.p25 }}%; transform:translateX(-50%);">P25: {{ hist_stats.p25 }}%</span>
+                    <span style="position:absolute; left:{{ hist_stats.p75 }}%; transform:translateX(-50%);">P75: {{ hist_stats.p75 }}%</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Legend -->
+            <div class="conc-legend mb-3" style="margin-top:0.6rem;">
+                <div class="conc-legend-item">
+                    <span class="conc-legend-dot" style="background:var(--color-gold)"></span>
+                    <span><strong>#1</strong> {{ concentration.top1_title }} — {{ concentration.top1_rec | euros_short }}</span>
+                </div>
+                <div class="conc-legend-item">
+                    <span class="conc-legend-dot" style="background:#c0c0c0"></span>
+                    <span><strong>#2-3</strong> — {{ (concentration.top3_rec - concentration.top1_rec) | euros_short }}</span>
+                </div>
+                <div class="conc-legend-item">
+                    <span class="conc-legend-dot" style="background:#cd7f32"></span>
+                    <span><strong>#4-5</strong> — {{ (concentration.top5_rec - concentration.top3_rec) | euros_short }}</span>
+                </div>
+                <div class="conc-legend-item">
+                    <span class="conc-legend-dot" style="background:#e9ecef; border:1px solid #ccc;"></span>
+                    <span><strong>Resto</strong> — {{ concentration.rest_rec | euros_short }}</span>
+                </div>
+                {% if hist_stats %}
+                <div class="conc-legend-item">
+                    <span class="conc-legend-dot" style="background:rgba(56,142,60,0.15); border:1.5px dashed rgba(56,142,60,0.5);"></span>
+                    <span>Rango normal (P25-P75)</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Contextual explanation -->
+            <div style="font-size:0.82rem; color:#333; line-height:1.6;
+                        background:#fafafa; border-radius:8px; padding:0.8rem 1rem;
+                        border-left:3px solid {{ concentration.status_color }};">
+                {% if hist_stats and not hist_stats.low_data %}
+                Este fin de semana la nº1 se llevó un <strong>{{ concentration.seg_1 }}%</strong> de la taquilla.
+                En las últimas {{ hist_stats.num_weeks }} semanas, la media ha sido
+                <strong>{{ hist_stats.avg }}%</strong> con una variación típica de
+                <strong>±{{ hist_stats.std }}%</strong>.
+                {% if concentration.status == 'normal' %}
+                Este dato está dentro de lo esperado.
+                {% elif concentration.status == 'anomaly_high' %}
+                Este dato está <strong>por encima</strong> del rango habitual — una sola película dominó la cartelera.
+                {% elif concentration.status == 'anomaly_low' %}
+                Este dato está <strong>por debajo</strong> del rango habitual — la taquilla se repartió más que de costumbre.
+                {% else %}
+                {{ concentration.status_message }}.
+                {% endif %}
+                La mitad de los fines de semana del último año tuvieron a la nº1 entre
+                <strong>{{ hist_stats.p25 }}%</strong> y <strong>{{ hist_stats.p75 }}%</strong>.
+                {% elif hist_stats and hist_stats.low_data %}
+                <i class="bi bi-exclamation-triangle" style="color:#F57C00"></i>
+                <strong>Pocos datos para comparar.</strong> Con solo {{ hist_stats.num_weeks }} semanas,
+                la referencia es poco fiable. Se necesitan al menos 8 semanas para un benchmark sólido.
+                {% else %}
+                <strong>{{ concentration.top1_title }}</strong> se lleva el
+                <strong>{{ concentration.seg_1 }}%</strong> de la taquilla este fin de semana.
+                Las 3 primeras acumulan el <strong>{{ concentration.top3_pct }}%</strong>
+                del total de <strong>{{ concentration.total_rec | euros_short }}</strong>.
+                {% endif %}
+            </div>
+
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================================ -->
+    <!-- INSIGHT 2: Aforo y ocupación de salas                        -->
+    <!-- ============================================================ -->
+    {% if capacity %}
+    <div class="insight-block mb-4">
+        <div class="insight-header">
+            <h6>
+                <i class="bi bi-building" style="color:var(--color-accent)"></i> ¿Cuánta gente fue al cine este finde?
+                {% if semana_actual %}
+                <span style="font-weight:400; font-size:0.8rem; opacity:0.7;">· {{ semana_actual[0] | date }} – {{ semana_actual[1] | date }}</span>
+                {% endif %}
+            </h6>
+            <div class="insight-sub">
+                Comparando con todo el histórico ({{ capacity.num_weeks }} semanas)
+            </div>
+        </div>
+        <div class="insight-body">
+
+            <!-- Espectadores gauge -->
+            <div class="gauge-container">
+                <div class="gauge-label">
+                    <span><i class="bi bi-people-fill"></i> Gente en salas este finde</span>
+                    <span>
+                        <span class="gauge-value">{{ capacity.cur_esp | number }}</span>
+                        {% if capacity.percentile_esp >= 66 %}
+                        <span class="percentile-badge perc-high">
+                            <i class="bi bi-arrow-up-short"></i> Mejor que el {{ capacity.percentile_esp }}% de fines de semana
+                        </span>
+                        {% elif capacity.percentile_esp >= 33 %}
+                        <span class="percentile-badge perc-mid">
+                            Dentro de lo habitual
+                        </span>
+                        {% else %}
+                        <span class="percentile-badge perc-low">
+                            <i class="bi bi-arrow-down-short"></i> Peor que el {{ 100 - capacity.percentile_esp }}% de fines de semana
+                        </span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="gauge-track">
+                    {% set esp_pct = ((capacity.cur_esp - capacity.min_esp) / (capacity.max_esp - capacity.min_esp) * 100) if capacity.max_esp != capacity.min_esp else 50 %}
+                    <div class="gauge-fill" style="width:{{ esp_pct }}%; background: linear-gradient(90deg, #e94560, #f5c518);"></div>
+                    {% set avg_pct = ((capacity.avg_esp - capacity.min_esp) / (capacity.max_esp - capacity.min_esp) * 100) if capacity.max_esp != capacity.min_esp else 50 %}
+                    <div class="gauge-avg-marker" style="left:{{ avg_pct }}%;">
+                        <span class="gauge-avg-label">media: {{ capacity.avg_esp | number }}</span>
+                    </div>
+                </div>
+                <div class="gauge-range">
+                    <span>Mín: {{ capacity.min_esp | number }}</span>
+                    <span>Máx: {{ capacity.max_esp | number }}</span>
+                </div>
+            </div>
+
+            <!-- Pantallas gauge -->
+            <div class="gauge-container mt-3">
+                <div class="gauge-label">
+                    <span><i class="bi bi-display"></i> Salas de cine proyectando</span>
+                    <span>
+                        <span class="gauge-value">{{ capacity.cur_pant | number }}</span>
+                        {% if capacity.percentile_pant >= 66 %}
+                        <span class="percentile-badge perc-high">
+                            <i class="bi bi-arrow-up-short"></i> Mejor que el {{ capacity.percentile_pant }}%
+                        </span>
+                        {% elif capacity.percentile_pant >= 33 %}
+                        <span class="percentile-badge perc-mid">
+                            Dentro de lo habitual
+                        </span>
+                        {% else %}
+                        <span class="percentile-badge perc-low">
+                            <i class="bi bi-arrow-down-short"></i> Peor que el {{ 100 - capacity.percentile_pant }}%
+                        </span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="gauge-track">
+                    {% set pant_pct = ((capacity.cur_pant - capacity.min_pant) / (capacity.max_pant - capacity.min_pant) * 100) if capacity.max_pant != capacity.min_pant else 50 %}
+                    <div class="gauge-fill" style="width:{{ pant_pct }}%; background: linear-gradient(90deg, var(--color-secondary), #4a90d9);"></div>
+                    {% set avg_pant_pct = ((capacity.avg_pant - capacity.min_pant) / (capacity.max_pant - capacity.min_pant) * 100) if capacity.max_pant != capacity.min_pant else 50 %}
+                    <div class="gauge-avg-marker" style="left:{{ avg_pant_pct }}%;">
+                        <span class="gauge-avg-label">media: {{ capacity.avg_pant | number }}</span>
+                    </div>
+                </div>
+                <div class="gauge-range">
+                    <span>Mín: {{ capacity.min_pant | number }}</span>
+                    <span>Máx: {{ capacity.max_pant | number }}</span>
+                </div>
+            </div>
+
+            <!-- Yearly attendance chart -->
+            {% if attendance_chart %}
+            <div class="mt-4">
+                <div style="font-size:0.82rem; font-weight:600; color:var(--color-primary); margin-bottom:0.5rem;">
+                    <i class="bi bi-graph-up" style="color:var(--color-accent)"></i>
+                    Asistencia al cine — comparativa anual 
+                    <span style="font-weight: 400; opacity: 0.7;">({% if tab == 'top25' %}Toda la Cartelera{% else %}Cine Español{% endif %})</span>
+                </div>
+                <div style="position:relative; height:260px;">
+                    <canvas id="attendanceChart"></canvas>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Curva de decaimiento de las películas nº1 -->
+            <div class="mt-4">
+                <div style="font-size:0.82rem; font-weight:600; color:var(--color-primary); margin-bottom:0.25rem;">
+                    <i class="bi bi-graph-down-arrow" style="color:var(--color-accent)"></i>
+                    Curva de decaimiento — Películas que fueron nº1 un fin de semana
+                </div>
+                <div style="font-size:0.72rem; color:var(--color-muted); margin-bottom:0.5rem;">
+                    % promedio de la recaudación total que se llevó cada película nº1 en cada fin de semana de su carrera (semana 1 = su debut, semana 2 = el siguiente fin de semana, etc.)
+                </div>
+                <div style="position:relative; height:240px;">
+                    <canvas id="decayChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================================ -->
+    <!-- Top Year + Top Histórico                                     -->
+    <!-- ============================================================ -->
+    <h5 class="fw-bold mb-3 mt-5"><i class="bi bi-star-fill"></i> Rankings Acumulados</h5>
+    <div class="row g-4 mb-4">
+        <div class="col-12 col-lg-6">
+            <div class="card-block">
+                <div class="card-block-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+                    <span>
+                        <i class="bi bi-calendar-event"></i>
+                        Top {{ selected_year }} — {% if tab == 'topespanol' %}Cine Español{% else %}Toda la Cartelera{% endif %}
+                    </span>
+                    {% if available_years and available_years | length > 1 %}
+                    <select class="form-select form-select-sm" style="width:auto; font-size:0.78rem; padding:0.2rem 1.8rem 0.2rem 0.5rem;"
+                            onchange="window.location.href='?tab={{ tab }}{% if semana_actual %}&semana={{ semana_actual[0].isoformat() }}_{{ semana_actual[1].isoformat() }}{% endif %}&year='+this.value;">
+                        {% for y in available_years %}
+                        <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                </div>
+                {% if top_year %}
+                <ul class="top-list">
+                    {% for r in top_year %}
+                    <li>
+                        <span class="top-rank {% if loop.index <= 3 %}rank-{{ loop.index }}{% else %}rank-other{% endif %}">{{ loop.index }}</span>
+                        <div class="top-info">
+                            <div class="top-title" title="{{ r.titulo }}">{{ r.titulo }}</div>
+                            <div class="top-meta">{{ r.distribuidora }} · {{ r.semanas_en_cartelera }} sem. · <i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
+                        </div>
+                        <div class="top-amount">
+                            {{ r.recaudacion_total | euros }}
+                            <div class="top-esp">{{ r.espectadores_total | number }} esp.</div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos para {{ selected_year }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-12 col-lg-6">
+            <div class="card-block">
+                <div class="card-block-header">
+                    <i class="bi bi-star"></i>
+                    Top Histórico — {% if tab == 'topespanol' %}Cine Español{% else %}Toda la Cartelera{% endif %}
+                </div>
+                {% if top_historico %}
+                <ul class="top-list">
+                    {% for r in top_historico %}
+                    <li>
+                        <span class="top-rank {% if loop.index <= 3 %}rank-{{ loop.index }}{% else %}rank-other{% endif %}">{{ loop.index }}</span>
+                        <div class="top-info">
+                            <div class="top-title" title="{{ r.titulo }}">{{ r.titulo }}</div>
+                            <div class="top-meta">{{ r.distribuidora }} · {{ r.semanas_en_cartelera }} sem. · <i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
+                        </div>
+                        <div class="top-amount">
+                            {{ r.recaudacion_total | euros }}
+                            <div class="top-esp">{{ r.espectadores_total | number }} esp.</div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos históricos</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ============================================================ -->
+    <!-- Informe Anual ICAA — anual_esp                               -->
+    <!-- ============================================================ -->
+    {% if anual_years %}
+    <h5 class="fw-bold mb-3 mt-5"><i class="bi bi-journal-text" style="color:var(--color-accent)"></i> Ranking Anual Oficial ICAA — Cine Español</h5>
+
+    <!-- Buscador de películas -->
+    <div class="card-block mb-4" id="anualSearchBlock">
+        <div class="card-block-header">
+            <i class="bi bi-search"></i> Buscador — más de 4.000 películas entre 2016 y 2025
+        </div>
+        <div class="p-3">
+            <div style="position:relative;">
+                <input type="text" id="anualSearchInput" placeholder="Busca por título o distribuidora…"
+                       autocomplete="off"
+                       style="width:100%; padding:0.55rem 2.5rem 0.55rem 0.85rem;
+                              border:1.5px solid #dee2e6; border-radius:8px;
+                              font-size:0.9rem; outline:none; transition:border-color .2s;"
+                       onfocus="this.style.borderColor='var(--color-accent)'"
+                       onblur="this.style.borderColor='#dee2e6'">
+                <i class="bi bi-search" style="position:absolute; right:0.75rem; top:50%; transform:translateY(-50%); color:#aaa; pointer-events:none;"></i>
+            </div>
+            <div id="anualSearchResults" style="margin-top:0.75rem; display:none;">
+                <!-- populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <div class="card-block mb-5" id="anualBlock">
+
+        <!-- Controls bar -->
+        <div class="card-block-header d-flex flex-wrap align-items-center gap-3">
+            <!-- Year pills -->
+            <div class="d-flex flex-wrap gap-1" id="anualYearPills">
+                {% for y in anual_years %}
+                <button type="button"
+                        class="btn btn-sm anual-year-btn {% if loop.first %}active{% endif %}"
+                        data-anio="{{ y }}"
+                        style="border-radius:6px; font-size:0.78rem; font-weight:600;
+                               padding:0.2rem 0.65rem; border:1.5px solid rgba(255,255,255,0.35);
+                               background:{% if loop.first %}rgba(245,197,24,0.25){% else %}transparent{% endif %};
+                               color:white;">
+                    {{ y }}
+                </button>
+                {% endfor %}
+            </div>
+            <!-- Sort selector -->
+            <div class="ms-auto d-flex align-items-center gap-2" style="flex-shrink:0;">
+                <label class="mb-0" style="font-size:0.78rem; opacity:0.8; white-space:nowrap;">
+                    <i class="bi bi-sort-down"></i> Ordenar por:
+                </label>
+                <select id="anualOrden" class="form-select form-select-sm"
+                        style="width:auto; font-size:0.78rem; background:var(--color-secondary); color:white; border-color:rgba(255,255,255,0.2);">
+                    <option value="rank">Posición</option>
+                    <option value="titulo">Título</option>
+                    <option value="fecha_estreno">Fecha de estreno</option>
+                    <option value="recaudacion">Recaudación</option>
+                    <option value="espectadores">Espectadores</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Summary strip -->
+        <div id="anualSummary" class="px-3 py-2" style="background:#f8f9fa; border-bottom:1px solid #eee; font-size:0.8rem; color:var(--color-muted);"></div>
+
+        <!-- Table -->
+        <div class="table-scroll" style="max-height:560px;">
+            <table class="ranking-table" id="anualTable">
+                <thead>
+                    <tr>
+                        <th style="width:2.5rem" class="text-center">#</th>
+                        <th>Título</th>
+                        <th class="hide-mobile">Distribuidora</th>
+                        <th class="hide-mobile text-center" style="width:7rem">Estreno</th>
+                        <th class="text-end" style="width:8rem">Recaudación</th>
+                        <th class="text-end hide-mobile" style="width:7.5rem">Espectadores</th>
+                    </tr>
+                </thead>
+                <tbody id="anualTbody">
+                    <tr><td colspan="6" class="text-center text-muted py-4">
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>Cargando…
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- Distribución percentil — gráfico + tarjetas                 -->
+    <!-- ============================================================ -->
+    <h5 class="fw-bold mb-3 mt-4"><i class="bi bi-distribute-vertical" style="color:var(--color-accent)"></i> Distribución Percentil por Año - Cine Español</h5>
+    <div class="card-block mb-5">
+
+        <!-- Header -->
+        <div class="card-block-header d-flex flex-wrap align-items-center gap-2">
+            <span><i class="bi bi-bar-chart-steps"></i> Número de películas por banda de percentil + Recaudación total anual</span>
+            <span style="font-size:0.72rem; opacity:0.7; margin-left:0.5rem;">
+                Barras: nº películas (eje izq.) &nbsp;·&nbsp; Línea: recaudación total (eje dcho.)
+            </span>
+        </div>
+
+        <!-- Nota explicativa del gráfico -->
+        <div class="px-3 pt-3 pb-1">
+            <div style="background:#f0f4ff; border-left:3px solid #4a90d9; border-radius:0 6px 6px 0; padding:0.55rem 0.85rem; font-size:0.78rem; color:#444; line-height:1.55;">
+                <strong>¿Cómo leer este gráfico?</strong>
+                Cada barra representa el total de películas estrenadas ese año, divididas en 5 grupos según su recaudación.
+                El grupo <span style="color:#e94560; font-weight:700;">rojo (P90)</span> son las más taquilleras (top 10%);
+                el <span style="color:#c8d6e5; font-weight:700; -webkit-text-stroke:0.4px #999;">gris</span> son las del 25% inferior.
+                Cada película aparece <strong>una sola vez</strong>, en el grupo que le corresponde — por eso la suma de los grupos da exactamente el total de películas del año.
+                La <span style="color:#9b59b6; font-weight:700;">línea morada</span> muestra la recaudación total de cada año (eje derecho).
+            </div>
+        </div>
+
+        <!-- Gráfico de barras apiladas -->
+        <div class="p-3" style="position:relative; height:320px;">
+            <canvas id="percLineChart"></canvas>
+        </div>
+
+        <!-- Divisor + selector año para tarjetas -->
+        <div class="px-3 py-2 d-flex flex-wrap align-items-center justify-content-between gap-2"
+             style="border-top:1px solid #eee; border-bottom:1px solid #eee; background:#f8f9fa;">
+            <span style="font-size:0.82rem; font-weight:600; color:var(--color-primary);">
+                <i class="bi bi-grid-3x3-gap-fill" style="color:var(--color-accent)"></i>
+                Detalle por año
+            </span>
+            <div class="d-flex flex-wrap gap-1" id="percYearPills">
+                {% for y in anual_years %}
+                <button type="button"
+                        class="btn btn-sm perc-year-btn {% if loop.first %}active{% endif %}"
+                        data-anio="{{ y }}"
+                        style="border-radius:6px; font-size:0.75rem; font-weight:600; padding:0.15rem 0.6rem;
+                               background:{% if loop.first %}var(--color-accent){% else %}white{% endif %};
+                               color:{% if loop.first %}white{% else %}var(--color-primary){% endif %};
+                               border:1.5px solid {% if loop.first %}var(--color-accent){% else %}#dee2e6{% endif %};">
+                    {{ y }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Nota explicativa de las tarjetas -->
+        <div class="px-3 pt-3 pb-1">
+            <div style="background:#fff8e1; border-left:3px solid #f5c518; border-radius:0 6px 6px 0; padding:0.55rem 0.85rem; font-size:0.78rem; color:#444; line-height:1.55;">
+                <strong>¿Cómo leer estas tarjetas?</strong>
+                Cada tarjeta muestra las películas que <strong>superaron</strong> ese umbral de recaudación.
+                Importante: los grupos se solapan — las películas del P90 también están dentro del P75, P50 y P25.
+                Por eso la suma de las cuatro tarjetas es mayor que el total real.
+                Úsalas para responder preguntas como <em>"¿cuántas películas fueron un gran éxito ese año?"</em>,
+                no para sumar totales.
+            </div>
+        </div>
+
+        <!-- Tarjetas de percentil -->
+        <div class="p-3">
+            <div class="row g-3" id="percCards">
+                <!-- Populated by JS -->
+                <div class="col-12 text-center text-muted py-3">
+                    <span class="spinner-border spinner-border-sm me-2"></span>Cargando…
+                </div>
+            </div>
+        </div>
+
+    </div>
+    {% endif %}
+
+</main>
+
+<!-- Footer -->
+<footer class="footer text-center py-3 mt-4">
+    <div class="container">
+        Datos: <a href="https://www.cultura.gob.es/cultura/areas/cine/datos/taquilla-espectadores.html"
+                  target="_blank">Ministerio de Cultura</a>
+        · Actualización semanal (lunes)
+    </div>
+</footer>
+
+<!-- Charts (attendance + percentile) -->
+{% if attendance_chart or anual_years %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endif %}
+
+{% if attendance_chart %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartData = {{ attendance_chart | tojson }};
+    const ctx = document.getElementById('attendanceChart');
+    if (!ctx) return;
+
+    // Build labels: weeks 1-52
+    const labels = Array.from({length: 52}, (_, i) => i + 1);
+
+    // Helper: convert array of {week, espectadores} to sparse 52-element array
+    function toWeekArray(data) {
+        const arr = new Array(52).fill(null);
+        data.forEach(d => { if (d.week >= 1 && d.week <= 52) arr[d.week - 1] = d.espectadores; });
+        return arr;
+    }
+
+
+    const datasets = [];
+    const currentYear = chartData.current_year;
+    const prevYears = chartData.previous_years;
+
+    // Color palette
+    const colors = {
+        current: '#e94560',
+        avg: '#1a1a2e',
+    };
+    const prevColors = ['#2ecc71', '#3498db'];
+
+    // Historical average (dashed)
+    if (chartData.average && chartData.average.length > 0) {
+        datasets.push({
+            label: 'Media histórica',
+            data: toWeekArray(chartData.average),
+            borderColor: colors.avg,
+            borderWidth: 2,
+            borderDash: [6, 3],
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.3,
+            spanGaps: true,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            order: 3,
+        });
+    }
+
+    // Previous complete years
+    prevYears.forEach((year, i) => {
+        if (chartData.years[year]) {
+            datasets.push({
+                label: '' + year,
+                data: toWeekArray(chartData.years[year]),
+                borderColor: prevColors[i] || '#999',
+                borderWidth: 1.8,
+                backgroundColor: 'transparent',
+                fill: false,
+                tension: 0.3,
+                spanGaps: true,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                order: 2,
+            });
+        }
+    });
+
+    // Current year (bold, on top)
+    if (chartData.years[currentYear]) {
+        datasets.push({
+            label: '' + currentYear,
+            data: toWeekArray(chartData.years[currentYear]),
+            borderColor: colors.current,
+            borderWidth: 2.5,
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.3,
+            spanGaps: true,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            order: 1,
+        });
+    }
+
+    new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'line',
+                        font: { size: 11 },
+                        padding: 16,
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        title: function(items) {
+                            return 'Semana ' + (items[0].dataIndex + 1);
+                        },
+                        label: function(ctx) {
+                            if (ctx.parsed.y == null) return null;
+                            return ctx.dataset.label + ': ' +
+                                new Intl.NumberFormat('es-ES').format(ctx.parsed.y) + ' esp.';
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Semana',
+                        font: { size: 10, weight: '600' },
+                        color: '#999',
+                    },
+                    ticks: {
+                        font: { size: 9 },
+                        maxTicksLimit: 13,
+                        maxRotation: 0,
+                        callback: function(v, i) { return (i + 1) % 4 === 1 ? (i + 1) : ''; }
+                    },
+                    grid: { display: false }
+                },
+                y: {
+                    ticks: {
+                        font: { size: 9 },
+                        callback: function(v) {
+                            if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+                            if (v >= 1000) return (v / 1000).toFixed(0) + 'k';
+                            return v;
+                        }
+                    },
+                    grid: { color: 'rgba(0,0,0,0.04)' }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endif %}
+
+<!-- Curva de decaimiento nº1 -->
+{% if attendance_chart %}
+<script>
+(function() {
+    const tab = '{{ tab }}';
+    const ctx = document.getElementById('decayChart');
+    if (!ctx) return;
+
+    fetch('/api/decay_curve?tab=' + tab)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.length) return;
+
+            const labels  = data.map(d => 'Semana ' + d.semana);
+            const avgData = data.map(d => d.avg_pct);
+            // Acumulado calculado en SQL con ventana: promedio del % acumulado de cada
+            // película sobre su propia recaudación de 10 semanas → converge a ~100%
+            const cumData = data.map(d => d.avg_cum_pct);
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: '% semanal',
+                            data: avgData,
+                            borderColor: '#e94560',
+                            backgroundColor: 'rgba(233,69,96,0.08)',
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: '#e94560',
+                            yAxisID: 'ySem',
+                            order: 1,
+                        },
+                        {
+                            label: '% acumulado',
+                            data: cumData,
+                            borderColor: '#4a90d9',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2,
+                            borderDash: [6, 3],
+                            fill: false,
+                            tension: 0.4,
+                            pointRadius: 4,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: '#4a90d9',
+                            yAxisID: 'yCum',
+                            order: 2,
+                        },
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { usePointStyle: true, pointStyle: 'line', font: { size: 11 }, padding: 16 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: items => {
+                                    const d = allData[items[0].dataIndex];
+                                    return 'Año ' + items[0].label + ' (' + d.total + ' películas)';
+                                },
+                                label: item => {
+
+                                    const d = data[item.dataIndex];
+                                    if (item.dataset.label === '% semanal') {
+                                        return [
+                                            ' Cuota semanal: ' + d.avg_pct.toFixed(1) + '%',
+                                            ' Basado en ' + d.num_obs + ' películas',
+                                        ];
+                                    }
+                                    if (item.dataset.label === '% acumulado') {
+                                        return ' Ya ingresado de su total (10 sem.): ' + item.parsed.y.toFixed(1) + '%';
+                                    }
+                                    return null;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        ySem: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { display: true, text: '% cuota semanal', font: { size: 10 }, color: '#e94560' },
+                            ticks: { font: { size: 9 }, color: '#e94560', callback: v => v.toFixed(1) + '%' },
+                            grid: { color: 'rgba(0,0,0,0.04)' },
+                        },
+                        yCum: {
+                            type: 'linear',
+                            position: 'right',
+                            title: { display: true, text: '% acumulado', font: { size: 10 }, color: '#4a90d9' },
+                            ticks: { font: { size: 9 }, color: '#4a90d9', callback: v => v.toFixed(1) + '%' },
+                            grid: { drawOnChartArea: false },
+                        },
+                        x: {
+                            ticks: { font: { size: 10 }, maxRotation: 0 },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        });
+})();
+</script>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Ranking Anual ICAA — filtro interactivo -->
+{% if anual_years %}
+<script>
+(function() {
+    const fmt = new Intl.NumberFormat('es-ES');
+    const fmtEur = v => v == null ? '—' : fmt.format(Math.round(v)) + ' €';
+    const fmtNum = v => v == null ? '—' : fmt.format(v);
+    const fmtDate = s => {
+        if (!s) return '—';
+        const [y, m, d] = s.split('-');
+        return d + '/' + m + '/' + y;
+    };
+
+    let currentAnio = {{ anual_years[0] }};
+    let currentOrden = 'rank';
+
+    function rankBadge(rank) {
+        if (rank === 1) return `<span class="rank-badge rank-1">1</span>`;
+        if (rank === 2) return `<span class="rank-badge rank-2">2</span>`;
+        if (rank === 3) return `<span class="rank-badge rank-3">3</span>`;
+        return `<span class="rank-badge rank-other">${rank}</span>`;
+    }
+
+    function renderTable(rows) {
+        const tbody = document.getElementById('anualTbody');
+        if (!rows || rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Sin datos para este año.</td></tr>';
+            return;
+        }
+
+        const totalRec = rows.reduce((s, r) => s + (r.recaudacion || 0), 0);
+        const totalEsp = rows.reduce((s, r) => s + (r.espectadores || 0), 0);
+        const maxRec = Math.max(...rows.map(r => r.recaudacion || 0));
+
+        document.getElementById('anualSummary').innerHTML =
+            `<strong>${rows.length}</strong> películas · Recaudación total: <strong>${fmtEur(totalRec)}</strong> · Espectadores totales: <strong>${fmtNum(totalEsp)}</strong>`;
+
+        tbody.innerHTML = rows.map(r => {
+            const barPct = maxRec > 0 ? Math.round((r.recaudacion || 0) / maxRec * 100) : 0;
+            const recBar = `<div style="font-weight:600; font-size:0.82rem;">${fmtEur(r.recaudacion)}</div>
+                            <div style="background:#f0f0f0; border-radius:3px; height:4px; margin-top:3px;">
+                              <div style="width:${barPct}%; height:100%; border-radius:3px; background:var(--color-accent);"></div>
+                            </div>`;
+            return `<tr>
+                <td class="text-center">${rankBadge(r.rank)}</td>
+                <td><div class="movie-title">${r.titulo}</div></td>
+                <td class="hide-mobile" style="font-size:0.82rem; color:var(--color-muted);">${r.distribuidora}</td>
+                <td class="hide-mobile text-center" style="font-size:0.82rem;">${fmtDate(r.fecha_estreno)}</td>
+                <td class="text-end">${recBar}</td>
+                <td class="text-end hide-mobile" style="font-size:0.82rem;">${fmtNum(r.espectadores)}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function loadData() {
+        const tbody = document.getElementById('anualTbody');
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Cargando…</td></tr>';
+
+        fetch(`/api/anual?anio=${currentAnio}&orden=${currentOrden}`)
+            .then(r => r.json())
+            .then(data => renderTable(data.rows))
+            .catch(() => {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">Error cargando los datos.</td></tr>';
+            });
+    }
+
+    // Year pill buttons
+    document.querySelectorAll('.anual-year-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.anual-year-btn').forEach(b => {
+                b.classList.remove('active');
+                b.style.background = 'transparent';
+            });
+            this.classList.add('active');
+            this.style.background = 'rgba(245,197,24,0.25)';
+            currentAnio = parseInt(this.dataset.anio, 10);
+            loadData();
+        });
+    });
+
+    // Sort selector
+    document.getElementById('anualOrden').addEventListener('change', function() {
+        currentOrden = this.value;
+        loadData();
+    });
+
+    // Initial load
+    loadData();
+})();
+</script>
+
+<!-- Buscador anual_esp -->
+<script>
+(function() {
+    const fmt     = new Intl.NumberFormat('es-ES');
+    const fmtEur  = v => v == null ? '—' : fmt.format(Math.round(v)) + ' €';
+    const fmtNum  = v => v == null ? '—' : fmt.format(v);
+    const fmtDate = s => { if (!s) return '—'; const [y,m,d]=s.split('-'); return d+'/'+m+'/'+y; };
+
+    const input   = document.getElementById('anualSearchInput');
+    const results = document.getElementById('anualSearchResults');
+    if (!input) return;
+
+    let timer = null;
+
+    input.addEventListener('input', function() {
+        clearTimeout(timer);
+        const q = this.value.trim();
+        if (q.length < 2) { results.style.display = 'none'; results.innerHTML = ''; return; }
+        timer = setTimeout(() => search(q), 280);
+    });
+
+    function search(q) {
+        results.style.display = 'block';
+        results.innerHTML = '<div class="text-center text-muted py-3" style="font-size:0.85rem;"><span class="spinner-border spinner-border-sm me-2"></span>Buscando…</div>';
+
+        fetch('/api/anual/search?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {
+                if (!data.length) {
+                    results.innerHTML = '<div class="text-center text-muted py-3" style="font-size:0.85rem;">Sin resultados para <strong>' + q + '</strong></div>';
+                    return;
+                }
+                results.innerHTML = `
+                    <div style="font-size:0.75rem; color:var(--color-muted); margin-bottom:0.5rem;">
+                        ${data.length} resultado${data.length > 1 ? 's' : ''}${data.length === 50 ? ' (mostrando los 50 con mayor recaudación)' : ''}
+                    </div>
+                    <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+                        <thead>
+                            <tr style="border-bottom:2px solid #eee; color:var(--color-muted); font-size:0.74rem; text-transform:uppercase; letter-spacing:.03em;">
+                                <th style="padding:0.35rem 0.5rem; text-align:left;">Año</th>
+                                <th style="padding:0.35rem 0.5rem; text-align:center;">Rank</th>
+                                <th style="padding:0.35rem 0.5rem; text-align:left;">Título</th>
+                                <th style="padding:0.35rem 0.5rem; text-align:left; white-space:nowrap;">Distribuidora</th>
+                                <th style="padding:0.35rem 0.5rem; text-align:center; white-space:nowrap;">Estreno</th>
+                                <th style="padding:0.35rem 0.5rem; text-align:right; white-space:nowrap;">Recaudación</th>
+                                <th style="padding:0.35rem 0.5rem; text-align:right; white-space:nowrap;">Espectadores</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.map((r, i) => `
+                            <tr style="border-bottom:1px solid #f0f0f0; background:${i%2===0?'white':'#fafafa'};">
+                                <td style="padding:0.4rem 0.5rem; font-weight:600; color:var(--color-accent);">${r.anio}</td>
+                                <td style="padding:0.4rem 0.5rem; text-align:center;">
+                                    <span style="display:inline-block; min-width:1.6rem; padding:0.1rem 0.35rem; border-radius:4px;
+                                                 font-weight:700; font-size:0.78rem;
+                                                 background:${r.rank===1?'#f5c518':r.rank<=3?'#e8e8e8':'transparent'};
+                                                 color:${r.rank===1?'#1a1a2e':'inherit'};">
+                                        ${r.rank}
+                                    </span>
+                                </td>
+                                <td style="padding:0.4rem 0.5rem; font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.titulo}">${r.titulo}</td>
+                                <td style="padding:0.4rem 0.5rem; color:var(--color-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.distribuidora}</td>
+                                <td style="padding:0.4rem 0.5rem; text-align:center; color:var(--color-muted);">${fmtDate(r.fecha_estreno)}</td>
+                                <td style="padding:0.4rem 0.5rem; text-align:right; font-weight:600;">${fmtEur(r.recaudacion)}</td>
+                                <td style="padding:0.4rem 0.5rem; text-align:right; color:var(--color-muted);">${fmtNum(r.espectadores)}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                    </div>`;
+            })
+            .catch(() => {
+                results.innerHTML = '<div class="text-center text-danger py-2" style="font-size:0.85rem;">Error en la búsqueda.</div>';
+            });
+    }
+})();
+</script>
+{% endif %}
+
+<!-- Distribución percentil -->
+{% if anual_years %}
+<script>
+(function() {
+    // ── Config ────────────────────────────────────────────────────────────────
+    const PERCS = [
+        { key: 'p90', label: 'P90', name: 'Top 10%',  color: '#e94560', desc: 'Blockbusters' },
+        { key: 'p75', label: 'P75', name: 'Top 25%',  color: '#f5c518', desc: 'Grandes éxitos' },
+        { key: 'p50', label: 'P50', name: 'Top 50%',  color: '#4a90d9', desc: 'Por encima de la mediana' },
+        { key: 'p25', label: 'P25', name: 'Top 75%',  color: '#2ecc71', desc: 'Por encima del cuartil bajo' },
+    ];
+
+    const fmtEur  = v => v == null ? '—' : new Intl.NumberFormat('es-ES').format(Math.round(v)) + ' €';
+    const fmtNum  = v => v == null ? '—' : new Intl.NumberFormat('es-ES').format(Math.round(v));
+    const fmtM    = v => v == null ? '—' : v >= 1e6  ? (v / 1e6).toFixed(1) + ' M€'
+                                         : v >= 1e3  ? (v / 1e3).toFixed(0) + ' k€'
+                                         : Math.round(v) + ' €';
+    const fmtMEsp = v => v == null ? '—' : v >= 1e6  ? (v / 1e6).toFixed(2) + ' M'
+                                         : v >= 1e3  ? (v / 1e3).toFixed(0) + ' k'
+                                         : Math.round(v).toString();
+
+    let allData       = [];    // all years from API
+    let currentPercYear = null;
+    let lineChart       = null;
+
+    // ── Fetch ─────────────────────────────────────────────────────────────────
+    fetch('/api/anual/percentiles')
+        .then(r => r.json())
+        .then(data => {
+            allData = data;
+            if (!allData.length) return;
+            currentPercYear = allData[allData.length - 1].anio;
+            buildChart();
+            renderCards(currentPercYear);
+            syncYearPills(currentPercYear);
+        })
+        .catch(() => {
+            document.getElementById('percCards').innerHTML =
+                '<div class="col-12 text-center text-danger py-3">Error cargando los datos.</div>';
+        });
+
+    // ── Stacked bar chart (bandas de percentil) + línea de recaudación total ────
+    // 5 barras apiladas → bandas de películas por percentil (eje izquierdo = nº pelis)
+    // 1 línea → recaudación total anual (eje derecho = €)
+    const BANDS = [
+        { label: 'Bajo P25 (75% inferior)',  color: '#c8d6e5', bgAlpha: 'ff' },
+        { label: 'P25–P50',                  color: '#2ecc71', bgAlpha: 'ff' },
+        { label: 'P50–P75',                  color: '#4a90d9', bgAlpha: 'ff' },
+        { label: 'P75–P90',                  color: '#f5c518', bgAlpha: 'ff' },
+        { label: 'P90 (Top 10%)',            color: '#e94560', bgAlpha: 'ff' },
+    ];
+
+    function buildChart() {
+        const ctx = document.getElementById('percLineChart');
+        if (!ctx || !allData.length) return;
+        if (lineChart) { lineChart.destroy(); }
+
+        const years = allData.map(d => d.anio);
+
+        // Calcular bandas no acumulativas por año
+        const bandData = allData.map(d => {
+            const total    = d.total        || 0;
+            const cp90     = d.count_p90    || 0;
+            const cp75     = d.count_p75    || 0;
+            const cp50     = d.count_p50    || 0;
+            const cp25     = d.count_p25    || 0;
+            return [
+                Math.max(0, total - cp25),   // Bajo P25
+                Math.max(0, cp25  - cp50),   // P25–P50
+                Math.max(0, cp50  - cp75),   // P50–P75
+                Math.max(0, cp75  - cp90),   // P75–P90
+                Math.max(0, cp90),           // P90
+            ];
+        });
+
+        const datasets = BANDS.map((b, i) => ({
+            type: 'bar',
+            label: b.label,
+            data: allData.map((_, yi) => bandData[yi][i]),
+            backgroundColor: b.color,
+            borderColor: 'rgba(255,255,255,0.4)',
+            borderWidth: 0.5,
+            stack: 'pelis',
+            yAxisID: 'yPelis',
+            order: 2,
+        }));
+
+        // Línea: recaudación total anual
+        datasets.push({
+            type: 'line',
+            label: 'Recaudación total',
+            data: allData.map(d => d.total_rec_anio),
+            borderColor: '#9b59b6',
+            backgroundColor: 'rgba(155,89,182,0.12)',
+            borderWidth: 2.5,
+            fill: false,
+            tension: 0.35,
+            pointRadius: 5,
+            pointHoverRadius: 8,
+            pointBackgroundColor: '#9b59b6',
+            yAxisID: 'yRec',
+            order: 1,
+        });
+
+        lineChart = new Chart(ctx, {
+            data: { labels: years, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    currentPercYear = allData[idx].anio;
+                    renderCards(currentPercYear);
+                    syncYearPills(currentPercYear);
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            font: { size: 11 },
+                            padding: 14,
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: items => {
+                                const d = allData[items[0].dataIndex];
+                                return 'Año ' + items[0].label + '  (' + (d.total || 0) + ' películas en total)';
+                            },
+                            label: item => {
+                                const d = allData[item.dataIndex];
+                                // Línea de recaudación: mostrar rec + espectadores
+                                if (item.dataset.yAxisID === 'yRec') {
+                                    return [
+                                        ' Recaudación total:  ' + fmtM(d.total_rec_anio),
+                                        ' Espectadores totales:  ' + fmtMEsp(d.total_esp_anio),
+                                    ];
+                                }
+                                // Barras: mostrar número de películas de esa banda
+                                return item.parsed.y != null
+                                    ? ' ' + item.dataset.label + ':  ' + item.parsed.y + ' películas'
+                                    : null;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    yPelis: {
+                        type: 'linear',
+                        position: 'left',
+                        stacked: true,
+                        title: { display: true, text: 'Nº películas', font: { size: 10 }, color: '#666' },
+                        ticks: { font: { size: 9 } },
+                        grid: { color: 'rgba(0,0,0,0.04)' },
+                    },
+                    yRec: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Recaudación total (€)', font: { size: 10 }, color: '#9b59b6' },
+                        ticks: { font: { size: 9 }, color: '#9b59b6', callback: v => fmtM(v) },
+                        grid: { drawOnChartArea: false },
+                    },
+                    x: {
+                        stacked: true,
+                        ticks: { font: { size: 10 } },
+                        grid: { display: false },
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Stat cards ────────────────────────────────────────────────────────────
+    function renderCards(anio) {
+        const row = allData.find(d => d.anio === anio);
+        const container = document.getElementById('percCards');
+        if (!row) {
+            container.innerHTML = '<div class="col-12 text-center text-muted py-3">Sin datos para ' + anio + '</div>';
+            return;
+        }
+
+        container.innerHTML = PERCS.map(p => {
+            const count  = row[`count_${p.key}`];
+            const avgRec = row[`avg_rec_${p.key}`];
+            const avgEsp = row[`avg_esp_${p.key}`];
+            const thrRec = row[`thr_${p.key}_rec`];
+            const thrEsp = row[`thr_${p.key}_esp`];
+            return `
+            <div class="col-6 col-lg-3">
+                <div class="perc-card" style="--pc-color:${p.color};">
+                    <div class="d-flex align-items-start justify-content-between">
+                        <div>
+                            <div class="pc-badge">${p.label}</div>
+                            <div class="pc-sub">${p.name} · ${p.desc}</div>
+                        </div>
+                        <span style="font-size:1.5rem; font-weight:900; color:${p.color}; opacity:0.12;">${anio}</span>
+                    </div>
+                    <div class="pc-count">${count != null ? count : '—'} <span style="font-size:0.75rem; font-weight:500; color:var(--color-muted);">películas</span></div>
+                    <div class="pc-threshold">Umbral rec.: ${fmtM(thrRec)} · esp.: ${fmtMEsp(thrEsp)}</div>
+                    <div class="pc-metric-row">
+                        <span class="pc-metric-label"><i class="bi bi-currency-euro"></i> Avg rec.</span>
+                        <span class="pc-metric-val">${fmtM(avgRec)}</span>
+                    </div>
+                    <div class="pc-metric-row">
+                        <span class="pc-metric-label"><i class="bi bi-people"></i> Avg esp.</span>
+                        <span class="pc-metric-val">${fmtMEsp(avgEsp)}</span>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Year pills ────────────────────────────────────────────────────────────
+    function syncYearPills(anio) {
+        document.querySelectorAll('.perc-year-btn').forEach(btn => {
+            const active = parseInt(btn.dataset.anio, 10) === anio;
+            btn.style.background  = active ? 'var(--color-accent)' : 'white';
+            btn.style.color       = active ? 'white' : 'var(--color-primary)';
+            btn.style.borderColor = active ? 'var(--color-accent)' : '#dee2e6';
+        });
+    }
+
+    document.querySelectorAll('.perc-year-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            currentPercYear = parseInt(this.dataset.anio, 10);
+            renderCards(currentPercYear);
+            syncYearPills(currentPercYear);
+        });
+    });
+
+})();
+</script>
+{% endif %}
+
+</body>
+</html>

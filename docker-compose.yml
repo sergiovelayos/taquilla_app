@@ -1,0 +1,30 @@
+services:
+  webapp:
+    build: .
+    container_name: taquilla-webapp
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+      - FLASK_RUN_HOST=0.0.0.0
+    command: python webapp/app.py
+    volumes:
+      - ./webapp:/app/webapp
+      - ./pdfs:/app/pdfs
+      - ./csv:/app/csv
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+
+  # Cloudflare Tunnel
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: taquilla-tunnel
+    restart: unless-stopped
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - webapp
+
+# Volúmenes para persistencia si decides no usar carpetas locales (opcional)
+# Aquí estamos usando bind mounts para que puedas ver los PDFs y logs en el host.

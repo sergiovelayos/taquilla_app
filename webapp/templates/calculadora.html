@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Impacto - Taquilla España</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' fill='%23e94560' viewBox='0 0 16 16'><path d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1 a1 1 0 0 1-1-1zm4 0v6h8V1zm8 8H4v6h8zM1 1v2h2V1zm2 3H1v2h2zM1 7v2h2V7zm2 3H1v2h2zm-2 3v2h2v-2zM15 1h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2z'/></svg>">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --color-primary: #1a1a2e;
+            --color-secondary: #16213e;
+            --color-accent: #e94560;
+            --color-accent-light: #ff6b81;
+            --color-gold: #f5c518;
+            --color-muted: #6c757d;
+        }
+
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+        /* Navbar */
+        .navbar { background: var(--color-primary); box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        .navbar-brand { font-weight: 800; font-size: 1.4rem; color: white !important; }
+        .navbar-brand .bi-film { color: var(--color-accent); }
+        .nav-link { color: rgba(255,255,255,0.8) !important; font-weight: 500; }
+        .nav-link:hover { color: white !important; }
+
+        /* Stats cards */
+        .stat-card {
+            background: var(--color-primary); color: white;
+            border-radius: 12px; padding: 1.2rem; text-align: center;
+            height: 100%;
+            transition: transform 0.15s;
+        }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-card .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--color-gold); }
+        .stat-card .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
+
+        /* Search Section */
+        .search-box {
+            background: white; border-radius: 12px;
+            padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+        }
+
+        /* Results Table */
+        .card-block {
+            background: white; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .card-block-header {
+            background: var(--color-primary); color: white;
+            padding: 0.8rem 1.2rem; font-weight: 600;
+        }
+
+        .ranking-table thead th {
+            background: var(--color-secondary); color: white;
+            font-size: 0.7rem; text-transform: uppercase; padding: 0.6rem 0.5rem;
+        }
+        .ranking-table tbody td { font-size: 0.85rem; padding: 0.6rem 0.5rem; vertical-align: middle; }
+        
+        .ratio-badge {
+            background: rgba(25, 135, 84, 0.1); color: #198754;
+            padding: 4px 8px; border-radius: 6px; font-weight: 700; font-size: 0.9rem;
+        }
+
+        .scroll-ranking {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* ── Person cards con foto TMDB ── */
+        .person-card {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.65rem 1rem; text-decoration: none; color: inherit;
+            transition: background 0.12s;
+        }
+        .person-card:hover { background: #f8f9fa; }
+        .person-avatar {
+            width: 48px; height: 48px; border-radius: 50%;
+            object-fit: cover; flex-shrink: 0; border: 2px solid #dee2e6;
+        }
+        .person-avatar-placeholder {
+            width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; font-weight: 700; color: white;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            border: 2px solid #dee2e6;
+        }
+        .person-meta { flex: 1; min-width: 0; }
+        .person-name {
+            font-weight: 600; font-size: 0.88rem;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1a1a2e;
+        }
+        .person-details { font-size: 0.7rem; color: #6c757d; margin-top: 1px; }
+        .person-details .sep { margin: 0 4px; opacity: 0.4; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg">
+    <div class="container">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-film me-2"></i>Taquilla España
+        </a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">Inicio</a>
+            <a class="nav-link active" href="/calculadora">Calculadora</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container py-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2 class="fw-bold text-dark mb-1">Calculadora de Impacto</h2>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+                    <i class="bi bi-bank me-1"></i> Fuente: Ministerio de Cultura (ICAA)
+                </span>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                    <i class="bi bi-calendar3 me-1"></i> Periodo: 2016 — 2025
+                </span>
+            </div>
+            <p class="text-muted mb-0">
+                Analiza la recaudación y subvenciones acumuladas por director, actor o género. 
+                <span class="d-block small mt-1">
+                    <i class="bi bi-info-circle me-1"></i> Esta es una <strong>selección parcial</strong> de películas extraídas del Histórico de taquilla y espectadores en España. 
+                    Solo se incluyen aquellos registros que disponen de datos de subvenciones reportados oficialmente.
+                </span>
+            </p>
+        </div>
+    </div>
+
+    <!-- Buscador -->
+    <div class="search-box">
+        <form action="/calculadora" method="GET" class="row g-3">
+            <div class="col-md-3">
+                <select name="tipo" class="form-select">
+                    <option value="director" {% if tipo == 'director' %}selected{% endif %}>Director</option>
+                    <option value="actor" {% if tipo == 'actor' %}selected{% endif %}>Actor / Actriz</option>
+                    <option value="genero" {% if tipo == 'genero' %}selected{% endif %}>Género</option>
+                </select>
+            </div>
+            <div class="col-md-7">
+                <input type="text" name="query" class="form-control" placeholder="Escribe un nombre o género..." value="{{ query }}" required>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-danger w-100">
+                    <i class="bi bi-calculator me-2"></i>Calcular
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {% if query %}
+
+    {# ── Perfil TMDB de la persona buscada ── #}
+    {% if persona_tmdb and tipo in ('director', 'actor') %}
+    <div class="card border-0 shadow-sm mb-4" style="overflow:hidden;">
+        <div class="row g-0">
+            <div class="col-auto d-flex align-items-stretch" style="background:#1a1a2e; min-width:130px; max-width:160px;">
+                {% if persona_tmdb.foto_url %}
+                <img src="{{ persona_tmdb.foto_url }}" alt="{{ persona_tmdb.nombre_tmdb }}"
+                     style="width:100%; object-fit:cover; display:block;">
+                {% else %}
+                <div class="d-flex align-items-center justify-content-center w-100"
+                     style="font-size:3.5rem; font-weight:800; color:rgba(255,255,255,0.15); min-height:140px;">
+                    {{ (persona_tmdb.nombre_tmdb or query)[0] | upper }}
+                </div>
+                {% endif %}
+            </div>
+            <div class="col">
+                <div class="card-body py-3 px-4">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+                        <div>
+                            <h4 class="fw-bold mb-0">{{ persona_tmdb.nombre_tmdb or query }}</h4>
+                            <div class="text-muted small mt-1">
+                                {% if tipo == 'director' %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle me-1">
+                                    <i class="bi bi-camera-video-fill me-1"></i>Director
+                                </span>
+                                {% else %}
+                                <span class="badge bg-info-subtle text-info border border-info-subtle me-1">
+                                    <i class="bi bi-person-fill me-1"></i>Actor / Actriz
+                                </span>
+                                {% endif %}
+                                {% if persona_tmdb.fecha_nacimiento %}
+                                <span class="me-2">{{ persona_tmdb.fecha_nacimiento.strftime('%d/%m/%Y') }}</span>
+                                {% endif %}
+                                {% if persona_tmdb.lugar_nacimiento %}
+                                <span><i class="bi bi-geo-alt me-1"></i>{{ persona_tmdb.lugar_nacimiento }}</span>
+                                {% endif %}
+                                {% if persona_tmdb.fecha_fallecimiento %}
+                                <span class="ms-2 text-danger"><i class="bi bi-dash-circle me-1"></i>{{ persona_tmdb.fecha_fallecimiento.strftime('%d/%m/%Y') }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% if persona_tmdb.popularidad %}
+                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle fs-6 px-3 py-2">
+                                ⭐ {{ "%.1f"|format(persona_tmdb.popularidad) }}
+                            </span>
+                            {% endif %}
+                            {% if persona_tmdb.imdb_id %}
+                            <a href="https://www.imdb.com/name/{{ persona_tmdb.imdb_id }}" target="_blank" rel="noopener"
+                               class="btn btn-sm btn-outline-warning">IMDb <i class="bi bi-box-arrow-up-right ms-1"></i></a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if persona_tmdb.biografia %}
+                    <p class="text-secondary small mb-2"
+                       style="line-height:1.6; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;"
+                       id="personaBio">{{ persona_tmdb.biografia }}</p>
+                    <button class="btn btn-link btn-sm p-0 text-decoration-none text-muted" style="font-size:0.75rem;"
+                            onclick="var el=document.getElementById('personaBio');
+                                     var exp=el.style.webkitLineClamp==='unset';
+                                     el.style.webkitLineClamp=exp?'3':'unset';
+                                     this.textContent=exp?'Leer más ▾':'Leer menos ▴';">Leer más ▾</button>
+                    {% endif %}
+                    <div class="d-flex flex-wrap gap-3 mt-2 pt-2 border-top small text-muted">
+                        {% if persona_tmdb.num_peliculas_director and tipo == 'director' %}
+                        <span><i class="bi bi-film me-1"></i>{{ persona_tmdb.num_peliculas_director }} pelícs. como director en TMDB</span>
+                        {% endif %}
+                        {% if persona_tmdb.num_peliculas_actor and tipo == 'actor' %}
+                        <span><i class="bi bi-person-video2 me-1"></i>{{ persona_tmdb.num_peliculas_actor }} pelícs. como actor/actriz en TMDB</span>
+                        {% endif %}
+                        {% if persona_tmdb.tambien_conocido_como %}
+                        <span><i class="bi bi-tag me-1"></i>{{ persona_tmdb.tambien_conocido_como[:3] | join(' · ') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Resumen -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Películas Analizadas</div>
+                <div class="stat-value">{{ summary.total_peliculas or 0 }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Recaudación Total</div>
+                <div class="stat-value text-success">{{ "{:,.2f}".format(summary.recaudacion_total or 0) }} €</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Espectadores Totales</div>
+                <div class="stat-value">{{ "{:,}".format(summary.espectadores_totales or 0) }}</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Ayudas Públicas</div>
+                <div class="stat-value text-danger">{{ "{:,.2f}".format(summary.subvenciones_totales or 0) }} €</div>
+            </div>
+        </div>
+    </div>
+
+    {% if summary.subvenciones_totales and summary.subvenciones_totales > 0 %}
+    <div class="alert alert-info d-flex align-items-center mb-4 border-0 shadow-sm" style="background: white; border-left: 4px solid var(--color-accent) !important;">
+        <i class="bi bi-info-circle-fill fs-4 me-3 text-accent"></i>
+        <div>
+            <strong>Ratio de Eficiencia:</strong> Por cada 1€ de subvención, este criterio ha generado 
+            <span class="ratio-badge mx-2">
+                {{ "{:,.2f}".format((summary.recaudacion_total or 0) / (summary.subvenciones_totales or 1)) }} €
+            </span> 
+            en taquilla.
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Listado de Películas -->
+    <div class="card-block">
+        <div class="card-block-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list-stars me-2"></i>Películas Incluidas en el Análisis</span>
+            <small class="opacity-75">Basado en datos del ICAA (con subvención reportada)</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table ranking-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Año</th>
+                        <th>Título</th>
+                        <th>Director</th>
+                        <th class="text-end">Recaudación</th>
+                        <th class="text-end">Espectadores</th>
+                        <th class="text-end">Subvención</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in results %}
+                    <tr>
+                        <td class="text-muted">{{ r.anio_produccion or '-' }}</td>
+                        <td>
+                            <a href="/pelicula/{{ r.expediente_icaa }}" class="text-decoration-none fw-bold text-primary">
+                                {{ r.titulo }}
+                            </a>
+                        </td>
+                        <td>{{ r.director }}</td>
+                        <td class="text-end">{{ "{:,.0f}".format(r.recaudacion_eur or 0) }} €</td>
+                        <td class="text-end">{{ "{:,}".format(r.espectadores or 0) }}</td>
+                        <td class="text-end text-danger fw-bold">{{ "{:,.0f}".format(r.subvenciones_total_eur or 0) }} €</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">No se encontraron películas con subvenciones reportadas para este criterio.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <!-- Estado Inicial -->
+    <div class="text-center py-5">
+        <i class="bi bi-search" style="font-size: 4rem; color: #dee2e6;"></i>
+        <h4 class="mt-3 text-muted">Introduce un nombre para empezar el análisis</h4>
+        <p class="text-muted small">Ejemplos: "Pedro Almodóvar", "Penélope Cruz", "Drama"</p>
+    </div>
+    {% endif %}
+
+    <!-- Sección de Benchmarks / Referencias -->
+    <div class="mt-5 pt-4 border-top">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h3 class="fw-bold"><i class="bi bi-graph-up-arrow text-accent me-2"></i>Benchmarks de Referencia</h3>
+                <p class="text-muted small">¿Qué se considera un buen ratio? Pulsa sobre cualquier nombre para analizar su detalle.</p>
+            </div>
+            <div class="col-md-4 text-md-end">
+                <div class="p-3 bg-white rounded shadow-sm border">
+                    <div class="small text-muted text-uppercase fw-bold mb-1" style="font-size: 0.65rem; letter-spacing: 1px;">Media Global de la Industria</div>
+                    <div class="h4 mb-0 fw-bold text-primary">{{ "{:,.2f}".format(benchmarks.global_avg or 0) }} € <small class="text-muted fw-normal" style="font-size: 0.8rem;">generados por cada 1€ invertido</small></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Películas más y menos eficientes -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-success text-white fw-bold">
+                        <i class="bi bi-award-fill me-2"></i> Top 50 Películas más Eficientes
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="scroll-ranking">
+                            <div class="list-group list-group-flush">
+                                {% for p in benchmarks.top_peliculas %}
+                                <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                                    <div style="max-width: 75%;">
+                                        <a href="/pelicula/{{ p.expediente_icaa }}" class="small fw-bold text-truncate d-block text-decoration-none text-primary">{{ p.titulo }}</a>
+                                        <div class="text-muted" style="font-size: 0.7rem;">
+                                            Subv: {{ "{:,.0f}".format(p.subvenciones_total_eur or 0) }}€ · Rec: {{ "{:,.0f}".format(p.recaudacion_eur or 0) }}€
+                                        </div>
+                                    </div>
+                                    <span class="badge bg-success rounded-pill">{{ "{:,.1f}".format(p.ratio or 0) }}x</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-danger text-white fw-bold">
+                        <i class="bi bi-hand-thumbs-down-fill me-2"></i> Top 50 Películas menos Eficientes
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="scroll-ranking">
+                            <div class="list-group list-group-flush">
+                                {% for p in benchmarks.bottom_peliculas %}
+                                <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                                    <div style="max-width: 75%;">
+                                        <a href="/pelicula/{{ p.expediente_icaa }}" class="small fw-bold text-truncate d-block text-decoration-none text-primary">{{ p.titulo }}</a>
+                                        <div class="text-muted" style="font-size: 0.7rem;">
+                                            Subv: {{ "{:,.0f}".format(p.subvenciones_total_eur or 0) }}€ · Rec: {{ "{:,.0f}".format(p.recaudacion_eur or 0) }}€
+                                        </div>
+                                    </div>
+                                    <span class="badge bg-danger rounded-pill">{{ "{:,.2f}".format(p.ratio or 0) }}x</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mejores Ratios -->
+        <h5 class="mb-3 text-success fw-bold"><i class="bi bi-star-fill me-2"></i>Líderes en Eficiencia (Top 5)</h5>
+        <div class="row g-4 mb-5">
+            {# ── Top Directores con foto ── #}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-success text-white fw-bold">
+                        <i class="bi bi-camera-video-fill me-1"></i> Directores
+                    </div>
+                    <div class="card-body p-0">
+                        {% for b in benchmarks.directores %}
+                        <a href="/calculadora?tipo=director&query={{ b.nombre }}" class="person-card list-group-item-action border-bottom">
+                            {% if b.foto_url %}
+                            <img src="{{ b.foto_url }}" alt="{{ b.nombre }}" class="person-avatar">
+                            {% else %}
+                            <div class="person-avatar-placeholder">{{ b.nombre[0] | upper }}</div>
+                            {% endif %}
+                            <div class="person-meta">
+                                <div class="person-name">{{ b.nombre }}</div>
+                                <div class="person-details">
+                                    <span>{{ b.num_pelis }} peli{{ 's' if b.num_pelis != 1 }}</span>
+                                    {% if b.anio_nacimiento %}<span class="sep">·</span><span>{{ b.anio_nacimiento }}</span>{% endif %}
+                                    {% if b.popularidad %}<span class="sep">·</span><span>⭐ {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <span class="badge bg-success-subtle text-success rounded-pill flex-shrink-0">{{ "{:,.1f}".format(b.ratio or 0) }}x</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {# ── Top Actores con foto ── #}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-success text-white fw-bold">
+                        <i class="bi bi-person-fill me-1"></i> Actores / Actrices
+                    </div>
+                    <div class="card-body p-0">
+                        {% for b in benchmarks.actores %}
+                        <a href="/calculadora?tipo=actor&query={{ b.nombre }}" class="person-card list-group-item-action border-bottom">
+                            {% if b.foto_url %}
+                            <img src="{{ b.foto_url }}" alt="{{ b.nombre }}" class="person-avatar">
+                            {% else %}
+                            <div class="person-avatar-placeholder">{{ b.nombre[0] | upper }}</div>
+                            {% endif %}
+                            <div class="person-meta">
+                                <div class="person-name">{{ b.nombre }}</div>
+                                <div class="person-details">
+                                    <span>{{ b.num_pelis }} peli{{ 's' if b.num_pelis != 1 }}</span>
+                                    {% if b.anio_nacimiento %}<span class="sep">·</span><span>{{ b.anio_nacimiento }}</span>{% endif %}
+                                    {% if b.popularidad %}<span class="sep">·</span><span>⭐ {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <span class="badge bg-success-subtle text-success rounded-pill flex-shrink-0">{{ "{:,.1f}".format(b.ratio or 0) }}x</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {# ── Top Géneros (sin foto) ── #}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-success text-white fw-bold">Géneros</div>
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            {% for b in benchmarks.generos %}
+                            <a href="/calculadora?tipo=genero&query={{ b.nombre }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2">
+                                <div class="small fw-bold">{{ b.nombre }}</div>
+                                <span class="badge bg-success-subtle text-success rounded-pill">{{ "{:,.1f}".format(b.ratio or 0) }}x</span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Peores Ratios -->
+        <h5 class="mb-3 text-danger fw-bold"><i class="bi bi-arrow-down-circle-fill me-2"></i>Menor Retorno (Bottom 5)</h5>
+        <div class="row g-4">
+            {# ── Bottom Directores con foto ── #}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-danger text-white fw-bold">
+                        <i class="bi bi-camera-video-fill me-1"></i> Directores
+                    </div>
+                    <div class="card-body p-0">
+                        {% for b in benchmarks.bottom_directores %}
+                        <a href="/calculadora?tipo=director&query={{ b.nombre }}" class="person-card list-group-item-action border-bottom">
+                            {% if b.foto_url %}
+                            <img src="{{ b.foto_url }}" alt="{{ b.nombre }}" class="person-avatar">
+                            {% else %}
+                            <div class="person-avatar-placeholder" style="background:linear-gradient(135deg,#6c1111,#a52a2a);">{{ b.nombre[0] | upper }}</div>
+                            {% endif %}
+                            <div class="person-meta">
+                                <div class="person-name">{{ b.nombre }}</div>
+                                <div class="person-details">
+                                    <span>{{ b.num_pelis }} peli{{ 's' if b.num_pelis != 1 }}</span>
+                                    {% if b.anio_nacimiento %}<span class="sep">·</span><span>{{ b.anio_nacimiento }}</span>{% endif %}
+                                    {% if b.popularidad %}<span class="sep">·</span><span>⭐ {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <span class="badge bg-danger-subtle text-danger rounded-pill flex-shrink-0">{{ "{:,.2f}".format(b.ratio or 0) }}x</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {# ── Bottom Actores con foto ── #}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-danger text-white fw-bold">
+                        <i class="bi bi-person-fill me-1"></i> Actores / Actrices
+                    </div>
+                    <div class="card-body p-0">
+                        {% for b in benchmarks.bottom_actores %}
+                        <a href="/calculadora?tipo=actor&query={{ b.nombre }}" class="person-card list-group-item-action border-bottom">
+                            {% if b.foto_url %}
+                            <img src="{{ b.foto_url }}" alt="{{ b.nombre }}" class="person-avatar">
+                            {% else %}
+                            <div class="person-avatar-placeholder" style="background:linear-gradient(135deg,#6c1111,#a52a2a);">{{ b.nombre[0] | upper }}</div>
+                            {% endif %}
+                            <div class="person-meta">
+                                <div class="person-name">{{ b.nombre }}</div>
+                                <div class="person-details">
+                                    <span>{{ b.num_pelis }} peli{{ 's' if b.num_pelis != 1 }}</span>
+                                    {% if b.anio_nacimiento %}<span class="sep">·</span><span>{{ b.anio_nacimiento }}</span>{% endif %}
+                                    {% if b.popularidad %}<span class="sep">·</span><span>⭐ {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <span class="badge bg-danger-subtle text-danger rounded-pill flex-shrink-0">{{ "{:,.2f}".format(b.ratio or 0) }}x</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {# ── Bottom Géneros (sin foto) ── #}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-danger text-white fw-bold">Géneros</div>
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            {% for b in benchmarks.bottom_generos %}
+                            <a href="/calculadora?tipo=genero&query={{ b.nombre }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2">
+                                <div class="small fw-bold">{{ b.nombre }}</div>
+                                <span class="badge bg-danger-subtle text-danger rounded-pill">{{ "{:,.2f}".format(b.ratio or 0) }}x</span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4 p-3 bg-light rounded text-muted small">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <strong>Nota metodológica:</strong> Para evitar distorsiones por éxitos aislados o películas con presupuestos ínfimos, los rankings requieren un mínimo de 2 películas para personas y 5 películas para géneros. El ratio "x" indica cuántos euros de recaudación se generan por cada euro de subvención recibida.
+        </div>
+    </div>
+</div>
+
+<footer class="py-5 text-center text-muted small">
+    <p>© 2026 Taquilla España · Datos oficiales del ICAA</p>
+</footer>
+
+</body>
+</html>
