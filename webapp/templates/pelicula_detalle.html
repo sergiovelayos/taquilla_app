@@ -193,21 +193,22 @@
                 <div class="card-body">
                     <div class="mb-3">
                         <div class="label-custom">Recaudación Total</div>
-                        <div class="h4 fw-bold text-success">{{ "{:,.2f}".format(p.recaudacion_eur or 0) }} €</div>
+                        <div class="h4 fw-bold text-success">{{ p.recaudacion_eur | euros }}</div>
                     </div>
                     <div class="mb-3">
                         <div class="label-custom">Espectadores</div>
-                        <div class="h4 fw-bold">{{ "{:,}".format(p.espectadores or 0) }}</div>
+                        <div class="h4 fw-bold">{{ p.espectadores | number }}</div>
                     </div>
-                    <hr>
                     <div class="mb-3">
                         <div class="label-custom">Total Subvenciones</div>
-                        <div class="h4 fw-bold text-danger">{{ "{:,.2f}".format(p.subvenciones_total_eur or 0) }} €</div>
+                        <div class="h4 fw-bold text-danger">{{ p.subvenciones_total_eur | euros }}</div>
                         {% if p.subvenciones_total_eur and p.espectadores %}
                         <div class="badge bg-light text-dark border mt-1">
-                            {{ "{:,.3f}".format(p.espectadores / p.subvenciones_total_eur) }} esp/€
+                            {{ (p.espectadores / p.subvenciones_total_eur) | decimal(3) }} esp/€
                         </div>
                         {% endif %}
+                    </div>
+
                     </div>
 
                     <div class="mt-4">
@@ -215,7 +216,7 @@
                         {% for s in p.subvenciones %}
                         <div class="subvencion-item small">
                             <div class="fw-bold">{{ s.concepto }}</div>
-                            <div class="text-danger">{{ "{:,.2f}".format(s.importe or 0) }} €</div>
+                            <div class="text-danger">{{ s.importe | euros }}</div>
                         </div>
                         {% endfor %}
                     </div>

@@ -5,7 +5,7 @@ Flask application to visualize Spanish box office data from PostgreSQL.
 
 import os
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 
@@ -513,12 +513,13 @@ def get_attendance_by_year(table='top25'):
 # ---------------------------------------------------------------------------
 
 def fmt_euros(value):
-    """Format a number as euros: 1.234.567 €"""
+    """Format a number as euros: 1.234.567,89 €"""
     if value is None:
         return '—'
     try:
-        n = int(value)
-        return f"{n:,.0f} €".replace(',', '.')
+        n = float(value)
+        # Formateamos con coma para decimales y punto para miles
+        return f"{n:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') + " €"
     except (ValueError, TypeError):
         return '—'
 
@@ -528,8 +529,24 @@ def fmt_number(value):
     if value is None:
         return '—'
     try:
-        n = int(value)
-        return f"{n:,}".replace(',', '.')
+        n = float(value)
+        if n == int(n):
+            n = int(n)
+            return f"{n:,}".replace(',', '.')
+        # Si tiene decimales, usamos el formato español
+        return f"{n:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    except (ValueError, TypeError):
+        return '—'
+
+
+def fmt_decimal(value, decimals=2):
+    """Format a number with custom decimals and es-ES style."""
+    if value is None:
+        return '—'
+    try:
+        n = float(value)
+        fmt = "{:,.%df}" % decimals
+        return fmt.format(n).replace(',', 'X').replace('.', ',').replace('X', '.')
     except (ValueError, TypeError):
         return '—'
 
@@ -575,9 +592,11 @@ def fmt_euros_short(value):
     try:
         n = float(value)
         if n >= 1_000_000:
-            return f"{n/1_000_000:.1f} M€"
+            val = n / 1_000_000
+            return f"{val:.1f}".replace('.', ',') + " M€"
         if n >= 1_000:
-            return f"{n/1_000:.0f} k€"
+            val = n / 1_000
+            return f"{val:.0f}" + " k€"
         return f"{n:.0f} €"
     except (ValueError, TypeError):
         return '—'
@@ -587,6 +606,7 @@ def fmt_euros_short(value):
 app.jinja_env.filters['euros'] = fmt_euros
 app.jinja_env.filters['euros_short'] = fmt_euros_short
 app.jinja_env.filters['number'] = fmt_number
+app.jinja_env.filters['decimal'] = fmt_decimal
 app.jinja_env.filters['pct'] = fmt_pct
 app.jinja_env.filters['date'] = fmt_date
 app.jinja_env.filters['datetime'] = fmt_datetime
@@ -607,6 +627,7 @@ def get_benchmarks():
         SELECT (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio
         FROM icaa_fichas
         WHERE subvenciones_total_eur > 0 AND espectadores > 0
+          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
     """)[0]['ratio'] or 0
 
     # Directores (min 2 pelis) + foto TMDB
@@ -622,6 +643,7 @@ def get_benchmarks():
         FROM icaa_fichas f
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
         WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
+          AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         GROUP BY f.director, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
         HAVING COUNT(*) >= 2
         ORDER BY ratio DESC LIMIT 20
@@ -640,6 +662,7 @@ def get_benchmarks():
         FROM icaa_fichas f
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
         WHERE f.subvenciones_total_eur > 0 AND f.espectadores IS NOT NULL
+          AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         GROUP BY f.director, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
         HAVING COUNT(*) >= 2 AND SUM(f.espectadores) >= 0
         ORDER BY ratio ASC LIMIT 20
@@ -653,6 +676,7 @@ def get_benchmarks():
                COUNT(*) AS num_pelis
         FROM icaa_fichas
         WHERE subvenciones_total_eur > 0 AND espectadores > 0 AND genero IS NOT NULL
+          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         GROUP BY genero HAVING COUNT(*) >= 5
         ORDER BY ratio DESC LIMIT 20
     """)
@@ -665,6 +689,7 @@ def get_benchmarks():
                COUNT(*) AS num_pelis
         FROM icaa_fichas
         WHERE subvenciones_total_eur > 0 AND espectadores IS NOT NULL AND genero IS NOT NULL
+          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         GROUP BY genero HAVING COUNT(*) >= 5 AND SUM(espectadores) >= 0
         ORDER BY ratio ASC LIMIT 20
     """)
@@ -677,6 +702,7 @@ def get_benchmarks():
             FROM icaa_fichas f,
                  jsonb_array_elements(f.ficha_artistica) AS actor
             WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
+              AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
               AND (actor->>'funcion' ILIKE '%%Intérpretes%%'
                 OR actor->>'funcion' ILIKE '%%Actor%%'
                 OR actor->>'funcion' ILIKE '%%Actriz%%')
@@ -704,6 +730,7 @@ def get_benchmarks():
             FROM icaa_fichas f,
                  jsonb_array_elements(f.ficha_artistica) AS actor
             WHERE f.subvenciones_total_eur > 0 AND f.espectadores IS NOT NULL
+              AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
               AND (actor->>'funcion' ILIKE '%%Intérpretes%%'
                 OR actor->>'funcion' ILIKE '%%Actor%%'
                 OR actor->>'funcion' ILIKE '%%Actriz%%')
@@ -734,6 +761,7 @@ def get_benchmarks():
         FROM icaa_fichas
         WHERE subvenciones_total_eur > 5000
           AND espectadores > 0
+          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         ORDER BY ratio DESC LIMIT 50
     """)
 
@@ -748,6 +776,7 @@ def get_benchmarks():
         FROM icaa_fichas
         WHERE subvenciones_total_eur > 50000
           AND espectadores IS NOT NULL
+          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         ORDER BY ratio ASC LIMIT 50
     """)
 
@@ -780,25 +809,57 @@ def calculadora():
     persona_tmdb = None  # foto + bio de la persona buscada (solo director/actor)
 
     if query_str:
+        # Normalización: minúsculas, sin acentos y solo caracteres alfanuméricos
+        # Usamos una cadena base y reemplazamos el marcador de posición manualmente para evitar conflictos en f-strings
+        base_norm = "regexp_replace(unaccent(LOWER({})), '[^a-z0-9]', '', 'g')"
+        
         sql = ""
-        params = []
+        params = [query_str]
         if tipo == 'director':
-            sql = "SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND director ILIKE %s ORDER BY fecha_estreno DESC"
-            params = [f"%{query_str}%"]
+            col_norm = base_norm.format("director")
+            val_norm = base_norm.format("%s")
+            sql = f"SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
         elif tipo == 'actor':
-            sql = "SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(ficha_artistica) AS x WHERE x->>'nombre' ILIKE %s) ORDER BY fecha_estreno DESC"
-            params = [f"%{query_str}%"]
+            col_norm = base_norm.format("x->>'nombre'")
+            val_norm = base_norm.format("%s")
+            sql = f"""
+                SELECT * FROM icaa_fichas 
+                WHERE subvenciones_total_eur IS NOT NULL 
+                  AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(ficha_artistica) AS x 
+                    WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%'
+                  ) 
+                ORDER BY fecha_estreno DESC
+            """
         elif tipo == 'genero':
-            sql = "SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND genero ILIKE %s ORDER BY fecha_estreno DESC"
-            params = [f"%{query_str}%"]
+            col_norm = base_norm.format("genero")
+            val_norm = base_norm.format("%s")
+            sql = f"SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+        elif tipo == 'pelicula':
+            col_norm = base_norm.format("titulo")
+            val_norm = base_norm.format("%s")
+            sql = f"SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
 
         if sql:
             results = query(sql, params)
+            today = date.today()
+            limit_date = today - timedelta(days=60)
+            
             for r in results:
-                summary['total_peliculas'] += 1
-                summary['recaudacion_total'] += to_float(r['recaudacion_eur'])
-                summary['espectadores_totales'] += (r['espectadores'] or 0)
-                summary['subvenciones_totales'] += to_float(r['subvenciones_total_eur'])
+                # Lógica de antigüedad: precedencia fecha_estreno > anio_produccion
+                is_apto = False
+                if r.get('fecha_estreno'):
+                    is_apto = r['fecha_estreno'] < limit_date
+                elif r.get('anio_produccion'):
+                    is_apto = r['anio_produccion'] < today.year
+                
+                r['is_apto'] = is_apto  # Para usar en el template
+                
+                if is_apto:
+                    summary['total_peliculas'] += 1
+                    summary['recaudacion_total'] += to_float(r['recaudacion_eur'])
+                    summary['espectadores_totales'] += (r['espectadores'] or 0)
+                    summary['subvenciones_totales'] += to_float(r['subvenciones_total_eur'])
 
         # Buscar ficha TMDB de la persona (director o actor)
         if tipo in ('director', 'actor') and results:

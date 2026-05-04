@@ -7,8 +7,7 @@
 
 ## Contexto
 
-La calculadora compara películas, directores, actores y géneros en función de cómo han
-aprovechado las subvenciones públicas del ICAA. Solo se consideran las películas con
+La calculadora permite analizar el impacto de las subvenciones públicas del ICAA comparando películas individuales, directores, actores y géneros. Solo se consideran las películas con
 `subvenciones_total_eur IS NOT NULL` (aproximadamente 721 registros con datos completos).
 
 ---
@@ -73,16 +72,41 @@ público (esp/k€ alto) pero con retorno económico bajo, o viceversa.
 
 ---
 
+## Restricción de Antigüedad
+
+Para garantizar que los benchmarks sean justos, solo se incluyen películas con un recorrido comercial consolidado. Se aplica un filtro de **mínimo 2 meses de antigüedad** con la siguiente lógica de precedencia:
+
+1.  **Si existe fecha de estreno:** Debe haber pasado al menos 2 meses desde el estreno (`fecha_estreno < hoy - 60 días`).
+2.  **Si no hay fecha de estreno:** Se utiliza el año de producción, el cual debe ser estrictamente anterior al año actual (`anio_produccion < año_actual`).
+3.  **Si ambos son desconocidos:** La película se excluye de los promedios y rankings.
+
+Esta restricción aplica a la media global, los rankings (Top/Bottom 50 y Top 20) y al resumen de impacto de directores y actores.
+
+---
+
+## Búsqueda Normalizada
+
+El buscador de la calculadora utiliza un motor de **normalización de texto al vuelo** para facilitar la localización de registros. Esto permite:
+- **Ignorar acentos:** "agora" encontrará "Ágora".
+- **Ignorar mayúsculas:** "ALMODOVAR" encontrará "Almodóvar".
+- **Ignorar caracteres especiales:** "fernandez armero" encontrará "Fernández-Armero".
+- **Búsquedas parciales:** "padre no hay mas" encontrará "Padre no hay más que uno".
+
+La base de datos original no se modifica; la normalización solo se aplica durante el proceso de comparación de búsqueda.
+
+---
+
 ## Umbrales de filtrado
 
 Para evitar distorsiones estadísticas por casos atípicos o datos incompletos:
 
 | Ranking | Filtro aplicado |
 |---|---|
+| Todos los Benchmarks | **Restricción de antigüedad (mín. 2 meses)** |
 | Top 50 (mayor alcance) | `subvenciones_total_eur > 5.000` y `espectadores > 0` |
 | Bottom 50 (menor alcance) | `subvenciones_total_eur > 50.000` y `espectadores IS NOT NULL` |
-| Rankings de directores / actores (Top/Bottom 20) | Mínimo 2 películas con datos |
-| Rankings de géneros (Top/Bottom 20) | Mínimo 5 películas con datos |
+| Rankings de directores / actores | Mínimo 2 películas que cumplan la antigüedad |
+| Rankings de géneros | Mínimo 5 películas que cumplan la antigüedad |
 
 El umbral más alto en el Bottom 50 (50.000€) es intencional: excluye microsubvenciones
 donde una sola ayuda pequeña con cero espectadores dominaría artificialmente el ranking
@@ -95,6 +119,7 @@ de peor rendimiento.
 | Ubicación | Métrica mostrada |
 |---|---|
 | `/calculadora` — indicador global | Media global en esp/k€ |
+| `/calculadora` — búsqueda | Resumen de impacto individual y ratio de eficiencia (Búsqueda normalizada) |
 | `/calculadora` — Top 50 mayor alcance | Badge principal: esp/k€ · Badge secundario: rec/€ |
 | `/calculadora` — Top 50 menor alcance | Badge principal: esp/k€ · Badge secundario: rec/€ |
 | `/calculadora` — rankings directores/actores/géneros (Top/Bottom 20) | Badge principal: esp/k€ · Badge secundario: rec/€ |
