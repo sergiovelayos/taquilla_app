@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ p.titulo }} - Ficha ICAA</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' fill='%23e94560' viewBox='0 0 16 16'><path d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1 a1 1 0 0 1-1-1zm4 0v6h8V1zm8 8H4v6h8zM1 1v2h2V1zm2 3H1v2h2zM1 7v2h2V7zm2 3H1v2h2zm-2 3v2h2v-2zM15 1h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2z'/></svg>">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
-        :root { --color-primary: #1a1a2e; --color-accent: #e94560; --color-gold: #f5c518; }
+        :root { --color-primary: #1a1a2e; --color-accent: #e94560; --color-gold: #f5c518; --color-accent-light: #ff6b81; }
         body { background-color: #f8f9fa; font-family: system-ui, -apple-system, sans-serif; }
         .navbar { background: var(--color-primary); }
         .card-header-custom { background: var(--color-primary); color: white; font-weight: 700; }
@@ -38,13 +39,18 @@
             height: 28px;
             background: linear-gradient(transparent, white);
         }
+
+        /* Footer */
+        .footer { background: var(--color-primary); color: rgba(255,255,255,0.6); font-size: 0.8rem; }
+        .footer a { color: var(--color-gold); text-decoration: none; }
+        .footer a:hover { color: var(--color-accent-light); }
     </style>
 </head>
 <body>
 
 <nav class="navbar navbar-dark mb-4">
     <div class="container">
-        <a class="navbar-brand" href="/"><i class="bi bi-film me-2"></i>Taquilla España</a>
+        <a class="navbar-brand" href="/"><i class="bi bi-film me-2"></i>Insights Taquilla España</a>
         <a href="javascript:history.back()" class="btn btn-outline-light btn-sm"><i class="bi bi-arrow-left me-1"></i> Volver</a>
     </div>
 </nav>
@@ -197,9 +203,9 @@
                     <div class="mb-3">
                         <div class="label-custom">Total Subvenciones</div>
                         <div class="h4 fw-bold text-danger">{{ "{:,.2f}".format(p.subvenciones_total_eur or 0) }} €</div>
-                        {% if p.subvenciones_total_eur and p.recaudacion_eur %}
+                        {% if p.subvenciones_total_eur and p.espectadores %}
                         <div class="badge bg-light text-dark border mt-1">
-                            Eficiencia: {{ "{:,.2f}".format(p.recaudacion_eur / p.subvenciones_total_eur) }}x
+                            {{ "{:,.3f}".format(p.espectadores / p.subvenciones_total_eur) }} esp/€
                         </div>
                         {% endif %}
                     </div>
@@ -232,6 +238,52 @@
         </div>
     </div>
 </div>
+
+<footer class="footer mt-5 py-5">
+    <div class="container">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <h6 class="text-uppercase mb-3" style="color:rgba(255,255,255,0.4); font-size:0.68rem; letter-spacing:1.5px; font-weight:700;">Fuentes de datos</h6>
+                <ul class="list-unstyled mb-0" style="line-height:2;">
+                    <li>
+                        <i class="bi bi-film me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Taquilla semanal e histórica:
+                        <a href="https://www.cultura.gob.es/cultura/areas/cine/datos/taquilla-espectadores.html" target="_blank" rel="noopener">Ministerio de Cultura</a>
+                    </li>
+                    <li>
+                        <i class="bi bi-bank me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Subvenciones y fichas técnicas:
+                        <a href="https://sede.mcu.gob.es/CatalogoICAA/es-es" target="_blank" rel="noopener">Catálogo ICAA</a>
+                    </li>
+                    <li>
+                        <i class="bi bi-star me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Puntuaciones, votaciones e imágenes:
+                        <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>
+                    </li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-uppercase mb-3" style="color:rgba(255,255,255,0.4); font-size:0.68rem; letter-spacing:1.5px; font-weight:700;">Sobre la aplicación</h6>
+                <p class="mb-2">
+                    <i class="bi bi-tools me-2" style="color:var(--color-gold);"></i>
+                    Esta aplicación está en <strong style="color:var(--color-gold);">fase de desarrollo</strong>.
+                    Si encuentras errores o quieres compartir feedback escríbenos a
+                    <a href="mailto:taquilla.attire983@passinbox.com">taquilla.attire983@passinbox.com</a>.
+                </p>
+                <p class="mb-0">
+                    <i class="bi bi-github me-2" style="color:var(--color-gold);"></i>
+                    Código fuente disponible en
+                    <a href="https://github.com/sergiovelayos/taquilla_app" target="_blank" rel="noopener">GitHub</a>
+                    bajo licencia <strong>MIT</strong>.
+                </p>
+            </div>
+        </div>
+        <hr style="border-color:rgba(255,255,255,0.1); margin:1.5rem 0 1rem;">
+        <div class="text-center" style="font-size:0.72rem; opacity:0.4;">
+            © 2026 Insights Taquilla España · Datos de uso libre para fines educativos y de investigación
+        </div>
+    </div>
+</footer>
 
 </body>
 </html>

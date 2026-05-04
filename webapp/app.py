@@ -597,14 +597,23 @@ app.jinja_env.filters['datetime'] = fmt_datetime
 # ---------------------------------------------------------------------------
 
 def get_benchmarks():
-    """Calcula los mejores y peores ratios de eficiencia por categoría."""
-    # Promedio global para referencia
-    global_avg = query("SELECT SUM(recaudacion_eur)/NULLIF(SUM(subvenciones_total_eur), 0) as ratio FROM icaa_fichas WHERE subvenciones_total_eur > 0")[0]['ratio'] or 0
-    
+    """Calcula los mejores y peores ratios de eficiencia por categoría.
+    Métricas:
+      - ratio      : espectadores por cada 1.000€ de subvención  (esp/k€, entero)
+      - ratio_rec  : euros de recaudación por cada euro de subvención  (rec/€)
+    """
+    # Promedio global: espectadores por cada 1.000€ de subvención
+    global_avg = query("""
+        SELECT (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio
+        FROM icaa_fichas
+        WHERE subvenciones_total_eur > 0 AND espectadores > 0
+    """)[0]['ratio'] or 0
+
     # Directores (min 2 pelis) + foto TMDB
     top_directores = query("""
         SELECT f.director AS nombre,
-               SUM(f.recaudacion_eur) / SUM(f.subvenciones_total_eur) AS ratio,
+               (SUM(f.espectadores)::float / NULLIF(SUM(f.subvenciones_total_eur), 0)) * 1000 AS ratio,
+               SUM(f.recaudacion_eur) / NULLIF(SUM(f.subvenciones_total_eur), 0)              AS ratio_rec,
                COUNT(*) AS num_pelis,
                g.foto_url,
                g.popularidad,
@@ -612,16 +621,17 @@ def get_benchmarks():
                g.lugar_nacimiento
         FROM icaa_fichas f
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
-        WHERE f.subvenciones_total_eur > 0
+        WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
         GROUP BY f.director, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
         HAVING COUNT(*) >= 2
-        ORDER BY ratio DESC LIMIT 5
+        ORDER BY ratio DESC LIMIT 20
     """)
 
     # Bottom Directores (min 2 pelis) + foto TMDB
     bottom_directores = query("""
         SELECT f.director AS nombre,
-               SUM(f.recaudacion_eur) / SUM(f.subvenciones_total_eur) AS ratio,
+               (SUM(f.espectadores)::float / NULLIF(SUM(f.subvenciones_total_eur), 0)) * 1000 AS ratio,
+               SUM(f.recaudacion_eur) / NULLIF(SUM(f.subvenciones_total_eur), 0)              AS ratio_rec,
                COUNT(*) AS num_pelis,
                g.foto_url,
                g.popularidad,
@@ -629,45 +639,51 @@ def get_benchmarks():
                g.lugar_nacimiento
         FROM icaa_fichas f
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
-        WHERE f.subvenciones_total_eur > 0
+        WHERE f.subvenciones_total_eur > 0 AND f.espectadores IS NOT NULL
         GROUP BY f.director, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
-        HAVING COUNT(*) >= 2 AND SUM(f.recaudacion_eur) > 0
-        ORDER BY ratio ASC LIMIT 5
+        HAVING COUNT(*) >= 2 AND SUM(f.espectadores) >= 0
+        ORDER BY ratio ASC LIMIT 20
     """)
 
-    # Géneros (min 5 pelis) — sin cambios
+    # Géneros (min 5 pelis)
     top_generos = query("""
-        SELECT genero as nombre,
-               SUM(recaudacion_eur)/SUM(subvenciones_total_eur) as ratio,
-               COUNT(*) as num_pelis
-        FROM icaa_fichas WHERE subvenciones_total_eur > 0 AND genero IS NOT NULL
+        SELECT genero AS nombre,
+               (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio,
+               SUM(recaudacion_eur) / NULLIF(SUM(subvenciones_total_eur), 0)               AS ratio_rec,
+               COUNT(*) AS num_pelis
+        FROM icaa_fichas
+        WHERE subvenciones_total_eur > 0 AND espectadores > 0 AND genero IS NOT NULL
         GROUP BY genero HAVING COUNT(*) >= 5
-        ORDER BY ratio DESC LIMIT 5
+        ORDER BY ratio DESC LIMIT 20
     """)
 
-    # Bottom Géneros (min 5 pelis) — sin cambios
+    # Bottom Géneros (min 5 pelis)
     bottom_generos = query("""
-        SELECT genero as nombre,
-               SUM(recaudacion_eur)/SUM(subvenciones_total_eur) as ratio,
-               COUNT(*) as num_pelis
-        FROM icaa_fichas WHERE subvenciones_total_eur > 0 AND genero IS NOT NULL
-        GROUP BY genero HAVING COUNT(*) >= 5 AND SUM(recaudacion_eur) > 0
-        ORDER BY ratio ASC LIMIT 5
+        SELECT genero AS nombre,
+               (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio,
+               SUM(recaudacion_eur) / NULLIF(SUM(subvenciones_total_eur), 0)               AS ratio_rec,
+               COUNT(*) AS num_pelis
+        FROM icaa_fichas
+        WHERE subvenciones_total_eur > 0 AND espectadores IS NOT NULL AND genero IS NOT NULL
+        GROUP BY genero HAVING COUNT(*) >= 5 AND SUM(espectadores) >= 0
+        ORDER BY ratio ASC LIMIT 20
     """)
 
     # Actores (min 2 pelis) + foto TMDB
     top_actores = query("""
         WITH actor_stats AS (
-            SELECT actor->>'nombre' AS nombre, f.recaudacion_eur, f.subvenciones_total_eur
+            SELECT actor->>'nombre' AS nombre,
+                   f.espectadores, f.subvenciones_total_eur, f.recaudacion_eur
             FROM icaa_fichas f,
                  jsonb_array_elements(f.ficha_artistica) AS actor
-            WHERE f.subvenciones_total_eur > 0
+            WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
               AND (actor->>'funcion' ILIKE '%%Intérpretes%%'
                 OR actor->>'funcion' ILIKE '%%Actor%%'
                 OR actor->>'funcion' ILIKE '%%Actriz%%')
         )
         SELECT a.nombre,
-               SUM(a.recaudacion_eur) / SUM(a.subvenciones_total_eur) AS ratio,
+               (SUM(a.espectadores)::float / NULLIF(SUM(a.subvenciones_total_eur), 0)) * 1000 AS ratio,
+               SUM(a.recaudacion_eur) / NULLIF(SUM(a.subvenciones_total_eur), 0)               AS ratio_rec,
                COUNT(*) AS num_pelis,
                g.foto_url,
                g.popularidad,
@@ -677,22 +693,24 @@ def get_benchmarks():
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = a.nombre
         GROUP BY a.nombre, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
         HAVING COUNT(*) >= 2
-        ORDER BY ratio DESC LIMIT 5
+        ORDER BY ratio DESC LIMIT 20
     """)
 
     # Bottom Actores (min 2 pelis) + foto TMDB
     bottom_actores = query("""
         WITH actor_stats AS (
-            SELECT actor->>'nombre' AS nombre, f.recaudacion_eur, f.subvenciones_total_eur
+            SELECT actor->>'nombre' AS nombre,
+                   f.espectadores, f.subvenciones_total_eur, f.recaudacion_eur
             FROM icaa_fichas f,
                  jsonb_array_elements(f.ficha_artistica) AS actor
-            WHERE f.subvenciones_total_eur > 0
+            WHERE f.subvenciones_total_eur > 0 AND f.espectadores IS NOT NULL
               AND (actor->>'funcion' ILIKE '%%Intérpretes%%'
                 OR actor->>'funcion' ILIKE '%%Actor%%'
                 OR actor->>'funcion' ILIKE '%%Actriz%%')
         )
         SELECT a.nombre,
-               SUM(a.recaudacion_eur) / SUM(a.subvenciones_total_eur) AS ratio,
+               (SUM(a.espectadores)::float / NULLIF(SUM(a.subvenciones_total_eur), 0)) * 1000 AS ratio,
+               SUM(a.recaudacion_eur) / NULLIF(SUM(a.subvenciones_total_eur), 0)               AS ratio_rec,
                COUNT(*) AS num_pelis,
                g.foto_url,
                g.popularidad,
@@ -701,31 +719,35 @@ def get_benchmarks():
         FROM actor_stats a
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = a.nombre
         GROUP BY a.nombre, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
-        HAVING COUNT(*) >= 2 AND SUM(a.recaudacion_eur) > 0
-        ORDER BY ratio ASC LIMIT 5
+        HAVING COUNT(*) >= 2 AND SUM(a.espectadores) >= 0
+        ORDER BY ratio ASC LIMIT 20
     """)
 
-    # Top Películas Individuales (Éxitos de taquilla vs Subvención)
+    # Top 50 Películas: mayor alcance de público por subvención
     top_peliculas = query("""
-        SELECT expediente_icaa, titulo, 
-               recaudacion_eur / NULLIF(subvenciones_total_eur, 0) as ratio,
-               recaudacion_eur, 
+        SELECT expediente_icaa, titulo,
+               (espectadores::float / NULLIF(subvenciones_total_eur, 0)) * 1000 AS ratio,
+               recaudacion_eur / NULLIF(subvenciones_total_eur, 0)        AS ratio_rec,
+               espectadores,
+               recaudacion_eur,
                subvenciones_total_eur
-        FROM icaa_fichas 
-        WHERE subvenciones_total_eur > 5000 
-          AND recaudacion_eur > 10000 
+        FROM icaa_fichas
+        WHERE subvenciones_total_eur > 5000
+          AND espectadores > 0
         ORDER BY ratio DESC LIMIT 50
     """)
 
-    # Bottom Películas Individuales
+    # Bottom 50 Películas: menor alcance de público por subvención
     bottom_peliculas = query("""
-        SELECT expediente_icaa, titulo, 
-               recaudacion_eur / NULLIF(subvenciones_total_eur, 0) as ratio,
-               recaudacion_eur, 
+        SELECT expediente_icaa, titulo,
+               (espectadores::float / NULLIF(subvenciones_total_eur, 0)) * 1000 AS ratio,
+               recaudacion_eur / NULLIF(subvenciones_total_eur, 0)        AS ratio_rec,
+               espectadores,
+               recaudacion_eur,
                subvenciones_total_eur
-        FROM icaa_fichas 
-        WHERE subvenciones_total_eur > 50000 
-          AND recaudacion_eur IS NOT NULL
+        FROM icaa_fichas
+        WHERE subvenciones_total_eur > 50000
+          AND espectadores IS NOT NULL
         ORDER BY ratio ASC LIMIT 50
     """)
 
