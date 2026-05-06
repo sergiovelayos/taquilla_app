@@ -33,7 +33,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TMDB_TOKEN = os.getenv("TMDB_TOKEN", "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJhNjY5OTU1ZTY2ZDA4YmRkYjU1OWI2ZDVlZjdlNjQzYSIsIm5iZiI6MTczOTQ4MjE5MS4wNjksInN1YiI6IjY3YWU2NDRmZjg3YjM3OTYyNzlmNWE0OCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.fDQ0ozxHsFawb6SxXiiIp62EdWY4Ptt1edg5koJd6fc")
+TMDB_TOKEN = os.getenv("TMDB_TOKEN")
+if not TMDB_TOKEN:
+    log.error("TMDB_TOKEN not found in environment. Please check your .env file.")
+    exit(1)
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG  = "https://image.tmdb.org/t/p/w500"
 

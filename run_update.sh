@@ -5,8 +5,32 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_FILE="$SCRIPT_DIR/logs/cron.log"
 
 cd "$SCRIPT_DIR"
 
-# Use the virtual environment's python
-exec "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" "$@"
+# Ensure logs directory exists
+mkdir -p "$SCRIPT_DIR/logs"
+
+echo "=== Weekly Update Started: $(date) ===" >> "$LOG_FILE"
+
+# 1. Update Box Office Data (PDF Scraping & Parsing)
+echo "[$(date)] Phase 1: Taquilla PDF Update..." >> "$LOG_FILE"
+if "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" "$@"; then
+    echo "[$(date)] Phase 1 completed successfully." >> "$LOG_FILE"
+else
+    echo "[$(date)] Phase 1 failed. Check logs/update.log for details." >> "$LOG_FILE"
+    exit 1
+fi
+
+# 2. Enrich with TMDB Data
+echo "[$(date)] Phase 2: TMDB Enrichment..." >> "$LOG_FILE"
+if "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/tmdb_enricher.py"; then
+    echo "[$(date)] Phase 2 completed successfully." >> "$LOG_FILE"
+else
+    echo "[$(date)] Phase 2 failed. Check console output or log for details." >> "$LOG_FILE"
+    exit 1
+fi
+
+echo "=== Weekly Update Finished: $(date) ===" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"
