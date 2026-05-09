@@ -4,6 +4,7 @@ Flask application to visualize Spanish box office data from PostgreSQL.
 """
 
 import os
+import csv as csv_module
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -1199,6 +1200,176 @@ def index():
                            attendance_chart=attendance_chart,
                            last_update=last_update,
                            anual_years=anual_years)
+
+# ---------------------------------------------------------------------------
+# Subvenciones Histórico
+# ---------------------------------------------------------------------------
+
+def _parse_euro(value):
+    """Convert '1.400.000,00€' → float."""
+    try:
+        return float(value.replace('€', '').replace('.', '').replace(',', '.').strip())
+    except (ValueError, AttributeError):
+        return 0.0
+
+
+def get_subvenciones_historico():
+    """
+    Parse subsidy data from two sources and merge with spectator/revenue data:
+    - webapp/data/subvenciones_historico.csv  → per-film detail (2015-2023)
+    - webapp/data/subvenciones_agregadas.csv  → manual annual totals (other years)
+    - webapp/data/espectadores_nacionalidad.csv → spectators by year (editable)
+    - webapp/data/recaudacion_historico.csv   → box office revenue of Spanish films (M€)
+    Values in subvenciones_agregadas.csv must be in euros (plain numbers, no formatting).
+    """
+    csv_path     = os.path.join(os.path.dirname(__file__), 'data', 'subvenciones_historico.csv')
+    agr_path     = os.path.join(os.path.dirname(__file__), 'data', 'subvenciones_agregadas.csv')
+    esp_csv_path = os.path.join(os.path.dirname(__file__), 'data', 'espectadores_nacionalidad.csv')
+    rec_csv_path = os.path.join(os.path.dirname(__file__), 'data', 'recaudacion_historico.csv')
+
+    # --- Espectadores de películas ESPAÑOLAS por año (en millones) ---
+    espectadores_esp = {}
+    with open(esp_csv_path, newline='', encoding='utf-8') as f:
+        for row in csv_module.DictReader(f):
+            espectadores_esp[int(row['anio'])] = float(row['espectadores_esp_millones'])
+
+    # --- Recaudación de cine español por año (en millones de €) ---
+    recaudacion_esp = {}
+    if os.path.exists(rec_csv_path):
+        with open(rec_csv_path, newline='', encoding='utf-8') as f:
+            for row in csv_module.DictReader(f):
+                # Leer primera columna de valor independientemente del nombre
+                vals = list(row.values())
+                try:
+                    recaudacion_esp[int(vals[0])] = float(vals[1])
+                except (ValueError, IndexError):
+                    pass
+
+    # --- Subvenciones por película (2015-2023) ---
+    by_year = defaultdict(lambda: {
+        'generales': 0.0, 'selectivas': 0.0,
+        'amortizacion': 0.0, 'produccion': 0.0,
+        'count': 0,
+    })
+
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        for row in csv_module.DictReader(f):
+            anio = row['anio_ayuda'].strip()
+            tipo = row['tipo_ayuda'].strip().lower()
+            amt  = _parse_euro(row['importe_ayuda'])
+            d    = by_year[anio]
+            d['count'] += 1
+            if tipo == 'generales':
+                d['generales'] += amt
+            elif tipo == 'selectivas':
+                d['selectivas'] += amt
+            elif tipo in ('amortización', 'amortizacion'):
+                d['amortizacion'] += amt
+            else:
+                d['produccion'] += amt
+
+    # --- Subvenciones agregadas (otros años, rellenadas manualmente) ---
+    def _safe_float(v):
+        try:
+            return float(v.strip()) if v and v.strip() else 0.0
+        except (ValueError, AttributeError):
+            return 0.0
+
+    with open(agr_path, newline='', encoding='utf-8') as f:
+        for row in csv_module.DictReader(f):
+            anio = row['anio'].strip()
+            # Solo incorporar si hay al menos un valor no vacío y el año no está ya en el detalle
+            vals = {
+                'generales':   _safe_float(row.get('generales',   '')),
+                'selectivas':  _safe_float(row.get('selectivas',  '')),
+                'amortizacion':_safe_float(row.get('amortizacion','')),
+                'produccion':  _safe_float(row.get('produccion',  '')),
+            }
+            if any(v > 0 for v in vals.values()) and anio not in by_year:
+                by_year[anio]['generales']    = vals['generales']
+                by_year[anio]['selectivas']   = vals['selectivas']
+                by_year[anio]['amortizacion'] = vals['amortizacion']
+                by_year[anio]['produccion']   = vals['produccion']
+                by_year[anio]['count']        = 0  # sin dato por película
+
+    # --- Unificar años: subvenciones + espectadores + recaudación ---
+    all_years = sorted(
+        set(int(y) for y in by_year.keys()) |
+        set(espectadores_esp.keys()) |
+        set(recaudacion_esp.keys())
+    )
+
+    chart_data = []
+    for anio_int in all_years:
+        anio_str = str(anio_int)
+        d = by_year.get(anio_str, {})
+        chart_data.append({
+            'anio':             anio_int,
+            'generales':        round(d.get('generales',    0)),
+            'selectivas':       round(d.get('selectivas',   0)),
+            'amortizacion':     round(d.get('amortizacion', 0)),
+            'produccion':       round(d.get('produccion',   0)),
+            'count':            d.get('count', 0),
+            'espectadores_esp': espectadores_esp.get(anio_int),
+            'recaudacion_esp':  recaudacion_esp.get(anio_int),
+        })
+
+    # --- KPI stats (calculados solo sobre años con datos de subvenciones) ---
+    total_pelis = sum(d.get('count', 0) for d in by_year.values())
+    total_importe = sum(
+        d.get('generales', 0) + d.get('selectivas', 0) +
+        d.get('amortizacion', 0) + d.get('produccion', 0)
+        for d in by_year.values()
+    )
+    year_totals = {
+        anio: (d.get('generales', 0) + d.get('selectivas', 0) +
+               d.get('amortizacion', 0) + d.get('produccion', 0))
+        for anio, d in by_year.items()
+    }
+    max_anio = max(year_totals, key=year_totals.get) if year_totals else '2023'
+
+    # CAGR suavizado: media de los 3 primeros años (2003-2005) vs. media de los 3 últimos (2023-2025)
+    # El punto medio de cada ventana es 2004 y 2024 → n = 20 años
+    def _yt(y): return year_totals.get(str(y), 0)
+    start_avg = sum(_yt(y) for y in [2003, 2004, 2005]) / 3
+    end_avg   = sum(_yt(y) for y in [2023, 2024, 2025]) / 3
+    n_cagr    = 20  # distancia entre medianas de ambas ventanas (2004 → 2024)
+    if start_avg > 0 and end_avg > 0:
+        cagr_pct = round(((end_avg / start_avg) ** (1 / n_cagr) - 1) * 100, 1)
+    else:
+        cagr_pct = None
+
+    stats = {
+        'total_pelis': total_pelis,
+        'total_importe': total_importe,
+        'max_anio': max_anio,
+        'max_importe': year_totals[max_anio],
+        'cagr_pct': cagr_pct,
+    }
+
+    hitos = [
+        {'anio': 2015, 'texto': 'Predominio de la amortización (82% del presupuesto). Primera prueba piloto de ayudas anticipadas sobre proyecto: 36 resoluciones positivas de 424 solicitudes, con 4,75 M€.'},
+        {'anio': 2016, 'texto': 'Consolidación del nuevo modelo de ayudas anticipadas en dos modalidades: Generales (30 M€) y Selectivas (7 M€). La amortización sigue vigente con 27,1 M€ en pagos pendientes.'},
+        {'anio': 2017, 'texto': 'Estabilización con 30 M€ para Generales y 5,3 M€ para Selectivas. Las ayudas anticipadas se consolidan como el eje del sistema.'},
+        {'anio': 2018, 'texto': 'Incremento en producción: 35,5 M€ en Generales y 8,6 M€ en Selectivas. La amortización registra su pico por liquidaciones acumuladas de años anteriores.'},
+        {'anio': 2019, 'texto': 'Hito: desaparece definitivamente la línea de amortización. El sistema se centra en 35 M€ de Generales y 8,1 M€ de Selectivas (43,1 M€ totales).'},
+        {'anio': 2020, 'texto': 'A pesar del COVID-19, el presupuesto crece a 48,8 M€ (40 M€ Generales + 8,8 M€ Selectivas). Se añaden ayudas directas de emergencia para salas de exhibición.'},
+        {'anio': 2021, 'texto': 'Los fondos europeos MRR elevan el presupuesto a 62 M€ (47 M€ Generales + 15 M€ Selectivas), con 10 M€ procedentes del Mecanismo de Recuperación y Resiliencia de la UE.'},
+        {'anio': 2022, 'texto': 'Crecimiento continuo: 76 M€ totales. Las Selectivas suben de 15 a 20 M€, reflejando mayor apuesta por el cine cultural y de autor.'},
+        {'anio': 2023, 'texto': 'Máximo histórico: 92 M€ (62 M€ Generales + 30 M€ Selectivas). Se reciben 544 solicitudes, la cifra más alta del periodo analizado.'},
+    ]
+
+    return chart_data, stats, hitos
+
+
+@app.route('/subvenciones-historico')
+def subvenciones_historico():
+    chart_data, stats, hitos = get_subvenciones_historico()
+    return render_template('subvenciones_historico.html',
+                           chart_data=chart_data,
+                           stats=stats,
+                           hitos=hitos)
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)

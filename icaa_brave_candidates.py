@@ -10,10 +10,15 @@ auditar mapeos de peliculas de anual_esp usando:
   3. descarga de la ficha oficial candidata
   4. scoring por titulo + fecha de estreno
 
-Entrada TSV/CSV esperada por defecto:
+Entrada TSV/CSV esperada por defecto, sin cabecera:
 
     2018-03-16<TAB>Tribu, La
     2018-08-31<TAB>Yucatan
+
+Tambien acepta CSV con cabecera:
+
+    "titulo_normalizado","fecha_estreno"
+    "tribu la","2018-03-16"
 
 Uso:
 
@@ -63,6 +68,10 @@ SOFT_STOPWORDS = ARTICLES | {"y", "e", "de", "del", "en", "el", "la", "los", "la
 TRAILING_NOISE = (
     " Entertainment",
     " European",
+    " phoenix",
+    " Phoenix",
+    " avalon",
+    " Avalon",
 )
 
 
@@ -104,8 +113,9 @@ def normalize(text: str) -> str:
 
 def clean_title_noise(titulo: str) -> str:
     title = re.sub(r"\([^)]*\)", " ", titulo or "").strip()
+    title = re.split(r"\s+se realiza siguiendo\b", title, maxsplit=1, flags=re.IGNORECASE)[0]
     for suffix in TRAILING_NOISE:
-        if title.endswith(suffix):
+        if title.lower().endswith(suffix.lower()):
             title = title[: -len(suffix)].strip()
     return re.sub(r"\s+", " ", title).strip(" ,")
 
@@ -117,6 +127,9 @@ def move_trailing_article(titulo: str) -> str:
         flags=re.IGNORECASE,
     )
     if not match:
+        parts = titulo.strip().split()
+        if len(parts) > 1 and parts[-1].lower() in ARTICLES:
+            return f"{parts[-1]} {' '.join(parts[:-1])}"
         return titulo
     return f"{match.group(2)} {match.group(1)}"
 
@@ -507,12 +520,48 @@ class ICAAResolver:
 
 def read_movies_from_rows(rows: Iterable[List[str]]) -> List[Movie]:
     movies: List[Movie] = []
-    for row in rows:
+    iterator = iter(rows)
+    first_row = next(iterator, None)
+    if first_row is None:
+        return movies
+
+    def clean_cell(value: str) -> str:
+        return (value or "").strip().strip('"')
+
+    def is_iso_date(value: str) -> bool:
+        try:
+            dt.date.fromisoformat(value)
+            return True
+        except ValueError:
+            return False
+
+    header = [normalize(clean_cell(cell)).replace(" ", "_") for cell in first_row]
+    has_header = any(name in header for name in ("fecha_estreno", "titulo", "titulo_normalizado"))
+
+    if has_header:
+        def find_col(names: Tuple[str, ...]) -> int:
+            for name in names:
+                if name in header:
+                    return header.index(name)
+            raise SystemExit(f"No encuentro columna {names} en cabecera: {first_row}")
+
+        titulo_idx = find_col(("titulo_normalizado", "titulo", "titulo_anual_esp"))
+        fecha_idx = find_col(("fecha_estreno", "fecha"))
+        data_rows = iterator
+    else:
+        # Sin cabecera: soporta tanto fecha,titulo como titulo,fecha.
+        first = [clean_cell(cell) for cell in first_row]
+        if len(first) < 2:
+            return movies
+        fecha_idx, titulo_idx = (0, 1) if is_iso_date(first[0]) else (1, 0)
+        data_rows = [first_row, *iterator]
+
+    for row in data_rows:
         if not row or len(row) < 2:
             continue
-        fecha = row[0].strip().strip('"')
-        titulo = row[1].strip().strip('"')
-        if not fecha or not titulo or fecha.lower() in {"fecha", "fecha_estreno"}:
+        fecha = clean_cell(row[fecha_idx])
+        titulo = clean_cell(row[titulo_idx])
+        if not fecha or not titulo:
             continue
         # Valida formato pronto para fallar de forma clara.
         dt.date.fromisoformat(fecha)
@@ -536,21 +585,27 @@ def read_movies(path: Optional[str], use_stdin: bool) -> List[Movie]:
         return read_movies_from_rows(csv.reader(fh, delimiter=delimiter))
 
 
+TSV_FIELDS = [
+    "fecha_anual_esp",
+    "titulo_anual_esp",
+    "expediente_icaa",
+    "confidence",
+    "reason",
+    "title_score",
+    "titulo_icaa",
+    "fecha_estreno_icaa",
+    "url",
+]
+
+
+def tsv_row(result: dict) -> str:
+    return "\t".join(str(result.get(field, "") or "") for field in TSV_FIELDS)
+
+
 def print_tsv(results: List[dict]) -> None:
-    fields = [
-        "fecha_anual_esp",
-        "titulo_anual_esp",
-        "expediente_icaa",
-        "confidence",
-        "reason",
-        "title_score",
-        "titulo_icaa",
-        "fecha_estreno_icaa",
-        "url",
-    ]
-    print("\t".join(fields))
+    print("\t".join(TSV_FIELDS))
     for result in results:
-        print("\t".join(str(result.get(field, "") or "") for field in fields))
+        print(tsv_row(result))
 
 
 def parse_args() -> argparse.Namespace:
@@ -560,6 +615,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", "-i", help="Archivo TSV/CSV con columnas fecha_iso,titulo")
     parser.add_argument("--stdin", action="store_true", help="Leer TSV/CSV desde stdin")
     parser.add_argument("--format", choices=("tsv", "json"), default="tsv")
+    parser.add_argument("--output", "-o", help="Archivo de salida. En TSV se escribe incrementalmente.")
     parser.add_argument("--delay", type=float, default=0.2, help="Pausa entre queries Brave")
     parser.add_argument("--timeout", type=float, default=15.0, help="Timeout HTTP")
     parser.add_argument("--max-queries", type=int, default=8, help="Queries Brave maximas por pelicula")
@@ -586,21 +642,48 @@ def main() -> None:
         verbose=args.verbose,
     )
 
-    results = []
-    for index, movie in enumerate(movies, 1):
-        if args.verbose:
-            print(f"# [{index}/{len(movies)}] {movie.fecha_iso} {movie.titulo}", file=sys.stderr)
-        results.append(resolver.resolve(movie))
-
     if args.format == "json":
-        print(json.dumps({
+        results = []
+        for index, movie in enumerate(movies, 1):
+            if args.verbose:
+                print(f"# [{index}/{len(movies)}] {movie.fecha_iso} {movie.titulo}", file=sys.stderr)
+            results.append(resolver.resolve(movie))
+
+        payload = {
             "queries_used": resolver.query_count,
             "details_fetched": resolver.detail_count,
             "results": results,
-        }, ensure_ascii=False, indent=2))
+        }
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as out:
+                json.dump(payload, out, ensure_ascii=False, indent=2)
+                out.write("\n")
+        else:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        print_tsv(results)
-        print(f"# queries_used={resolver.query_count} details_fetched={resolver.detail_count}", file=sys.stderr)
+        output_handle = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
+        try:
+            print("\t".join(TSV_FIELDS), file=output_handle, flush=True)
+            for index, movie in enumerate(movies, 1):
+                if args.verbose:
+                    print(f"# [{index}/{len(movies)}] {movie.fecha_iso} {movie.titulo}", file=sys.stderr)
+                result = resolver.resolve(movie)
+                print(tsv_row(result), file=output_handle, flush=True)
+        except KeyboardInterrupt:
+            print(
+                f"# cancelado: queries_used={resolver.query_count} "
+                f"details_fetched={resolver.detail_count}",
+                file=sys.stderr,
+            )
+            raise
+        finally:
+            if args.output:
+                output_handle.close()
+        print(
+            f"# completado: queries_used={resolver.query_count} "
+            f"details_fetched={resolver.detail_count}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

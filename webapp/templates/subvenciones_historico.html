@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subvenciones Históricas al Cine Español (2015-2023) - Insights Taquilla España</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' fill='%23e94560' viewBox='0 0 16 16'><path d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1 a1 1 0 0 1-1-1zm4 0v6h8V1zm8 8H4v6h8zM1 1v2h2V1zm2 3H1v2h2zM1 7v2h2V7zm2 3H1v2h2zm-2 3v2h2v-2zM15 1h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2z'/></svg>">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --color-primary: #1a1a2e;
+            --color-secondary: #16213e;
+            --color-accent: #e94560;
+            --color-accent-light: #ff6b81;
+            --color-gold: #f5c518;
+            --color-muted: #6c757d;
+        }
+
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+        /* Footer */
+        .footer { background: var(--color-primary); color: rgba(255,255,255,0.6); font-size: 0.8rem; }
+        .footer a { color: var(--color-gold); text-decoration: none; }
+        .footer a:hover { color: var(--color-accent-light); }
+
+        /* Navbar */
+        .navbar { background: var(--color-primary); box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        .navbar-brand { font-weight: 800; font-size: 1.4rem; color: white !important; }
+        .navbar-brand .bi-film { color: var(--color-accent); }
+        .nav-link { color: rgba(255,255,255,0.8) !important; font-weight: 500; }
+        .nav-link:hover { color: white !important; }
+        .nav-link.active-nav { color: white !important; border-bottom: 2px solid var(--color-gold); }
+
+        /* Stat cards */
+        .stat-card {
+            background: var(--color-primary); color: white;
+            border-radius: 12px; padding: 1.2rem; text-align: center;
+            height: 100%; transition: transform 0.15s;
+        }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-card .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--color-gold); }
+        .stat-card .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin-top: 0.25rem; }
+
+        /* Card block */
+        .card-block {
+            background: white; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 1.5rem;
+        }
+        .card-block-header {
+            background: var(--color-primary); color: white;
+            padding: 0.85rem 1.2rem; font-weight: 600; font-size: 0.95rem;
+        }
+        .card-block-header i { color: var(--color-gold); }
+
+        /* Page header */
+        .page-header {
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+            color: white; border-radius: 16px; padding: 2rem 2.5rem; margin-bottom: 2rem;
+        }
+        .page-header h1 { font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem; }
+        .page-header .subtitle { opacity: 0.8; font-size: 0.9rem; }
+
+        /* Source badge */
+        .source-badge {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 6px; padding: 0.3rem 0.7rem; font-size: 0.8rem;
+            color: rgba(255,255,255,0.9); text-decoration: none;
+            transition: background 0.15s;
+        }
+        .source-badge:hover { background: rgba(255,255,255,0.2); color: white; }
+
+        /* Type cards for the "tipos de ayuda" section */
+        .tipo-card {
+            border-radius: 10px; border: 1px solid #e9ecef; padding: 1.25rem;
+            height: 100%; background: white;
+        }
+        .tipo-card .tipo-icon {
+            width: 40px; height: 40px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; margin-bottom: 0.75rem; flex-shrink: 0;
+        }
+        .tipo-card .tipo-name {
+            font-weight: 700; font-size: 0.95rem; color: var(--color-primary);
+            margin-bottom: 0.35rem;
+        }
+        .tipo-card .tipo-years {
+            font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.5px; opacity: 0.6; margin-bottom: 0.6rem;
+        }
+        .tipo-card p { font-size: 0.84rem; color: #444; line-height: 1.55; margin: 0; }
+
+        /* Year timeline pills */
+        .year-pill {
+            display: inline-block; font-size: 0.7rem; font-weight: 700;
+            padding: 0.15rem 0.55rem; border-radius: 20px; margin-right: 3px;
+        }
+
+        /* Chart container */
+        .chart-wrapper { padding: 1.25rem 1.25rem 0.75rem; }
+
+        /* Responsive */
+        @media (max-width: 576px) {
+            .page-header { padding: 1.25rem 1.25rem; }
+            .page-header h1 { font-size: 1.3rem; }
+            .stat-card .stat-value { font-size: 1.3rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-md navbar-dark">
+    <div class="container">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-film"></i> Insights Taquilla España
+        </a>
+        <div class="navbar-nav me-auto gap-1">
+            <a class="nav-link" href="/calculadora">
+                <i class="bi bi-calculator"></i> Calculadora Subvenciones
+            </a>
+            <a class="nav-link active-nav" href="/subvenciones-historico">
+                <i class="bi bi-clock-history"></i> Histórico Subvenciones
+            </a>
+        </div>
+    </div>
+</nav>
+
+<main class="container py-4">
+
+    <!-- Page header -->
+    <div class="page-header">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+            <div>
+                <h1><i class="bi bi-bank2 me-2" style="color:var(--color-gold);"></i>Subvenciones Históricas al Cine Español</h1>
+                <p class="subtitle mb-3">
+                    Evolución de las ayudas del ICAA (Instituto de la Cinematografía y de las Artes Audiovisuales)
+                    a la producción de largometrajes entre 2015 y 2023, basada en las Memorias de Ayudas a la Cinematografía publicadas por el Ministerio de Cultura.
+                </p>
+                <a href="https://www.cultura.gob.es/cultura/areas/cine/mc/mac/2023.html" target="_blank" class="source-badge">
+                    <i class="bi bi-file-earmark-pdf"></i> Fuente: Ministerio de Cultura — Memoria de Ayudas a la Cinematografía (2015-2023)
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI summary cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-value">2.081</div>
+                <div class="stat-label">Películas subvencionadas (2008–2025)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ stats.total_importe | euros_short }}</div>
+                <div class="stat-label">Total subvencionado</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ stats.max_anio }}</div>
+                <div class="stat-label">Año récord ({{ stats.max_importe | euros_short }})</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-value">{% if stats.cagr_pct is not none %}+{{ stats.cagr_pct | decimal }}%{% else %}—{% endif %}</div>
+                <div class="stat-label">Crecimiento anual medio 2003–2025</div>
+                <div style="font-size:0.68rem; opacity:0.6; margin-top:0.3rem;">CAGR · media 3 años inicio y fin</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart block -->
+    <div class="card-block mb-4">
+        <div class="card-block-header d-flex align-items-center gap-2">
+            <i class="bi bi-bar-chart-stacked"></i>
+            <span>Subvenciones por tipo de ayuda y espectadores de cine español</span>
+            <button onclick="downloadChartCSV()" class="ms-auto btn btn-sm"
+                style="background:rgba(255,255,255,0.15); color:white; border:1px solid rgba(255,255,255,0.3);
+                       font-size:0.75rem; padding:0.2rem 0.65rem; border-radius:5px; white-space:nowrap;">
+                <i class="bi bi-download me-1"></i>Descargar CSV
+            </button>
+        </div>
+        <div class="chart-wrapper">
+            <div style="position:relative; height:400px;">
+                <canvas id="subvChart"></canvas>
+            </div>
+            <div class="d-flex flex-wrap gap-3 justify-content-center mt-3 mb-1" style="font-size:0.78rem;">
+                <span><span style="display:inline-block;width:12px;height:12px;background:#1a3a6e;border-radius:2px;margin-right:4px;"></span>Generales</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:#f5c518;border-radius:2px;margin-right:4px;"></span>Selectivas</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:#9e9e9e;border-radius:2px;margin-right:4px;"></span>Amortización</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:rgba(230,81,0,0.75);border-radius:2px;margin-right:4px;"></span>Recaudación cine español</span>
+                <span style="color:#2e7d32; font-weight:600;"><i class="bi bi-dot" style="font-size:1rem;"></i> Espectadores cine español (eje dcha.)</span>
+            </div>
+            <p class="text-muted px-1 pb-2" style="font-size:0.74rem;">
+                * El dato de amortización en 2018 incluye pagos acumulados de convocatorias anteriores pendientes de liquidación, de ahí su volumen excepcionalmente alto.
+                Los años 2020 y 2021 están afectados por el cierre de salas por COVID-19.
+            </p>
+        </div>
+    </div>
+
+    <!-- Espectadores data source block -->
+    <div class="card-block mb-4">
+        <div class="card-block-header d-flex align-items-center gap-2">
+            <i class="bi bi-people-fill"></i>
+            <span>Sobre los datos de espectadores y recaudación</span>
+        </div>
+        <div class="p-3 p-md-4">
+            <p style="font-size:0.87rem; color:#444; line-height:1.65; margin-bottom:0.75rem;">
+                La línea verde del gráfico muestra el total de <strong>espectadores de películas de nacionalidad española</strong> en salas de cine, expresado en millones. Las barras naranjas representan la <strong>recaudación del cine español en taquilla</strong>, también en millones de euros. Ambas series proceden de la <strong>Estadística de Cinematografía</strong> del ICAA (Instituto de la Cinematografía y de las Artes Audiovisuales), que publica anualmente el desglose de espectadores y recaudación por nacionalidad de la película.
+            </p>
+            <p style="font-size:0.87rem; color:#444; line-height:1.65; margin-bottom:0.75rem;">
+                La correlación con las subvenciones no es directa: el impacto de las ayudas anticipadas (generales y selectivas) se refleja en los espectadores con un desfase de 1-3 años, que es el tiempo típico entre la concesión de la subvención y el estreno en salas. Se observa una tendencia bajista en la audiencia del cine español a pesar del incremento sostenido de las subvenciones, con el mínimo histórico del periodo en los años pandémicos (2020-2021) y una recuperación parcial en 2022-2023 que no alcanza los niveles pre-pandemia.
+            </p>
+            <p style="font-size:0.87rem; color:#444; line-height:1.65; margin-bottom:0.75rem;">
+                <strong>Cobertura temporal:</strong> para el período <strong>2015–2023</strong> los datos de subvenciones proceden de las Memorias Anuales del ICAA, con detalle película a película. Para los años <strong>2003–2014 y 2024–2025</strong>, las subvenciones son totales anuales agregados procedentes del <strong>Anuario de Cine</strong> del Ministerio de Cultura; los datos de espectadores y recaudación se obtienen de la Estadística de Cinematografía (tablas T2001006 y T2001009).
+            </p>
+            <p style="font-size:0.87rem; color:#444; line-height:1.65; margin-bottom:1rem;">
+                <strong>Alcance de las ayudas contabilizadas:</strong> las cifras de subvenciones recogen únicamente las <strong>ayudas generales, selectivas y de amortización</strong> a la producción de largometrajes. El ICAA concede también otras líneas de ayuda (distribución, exhibición, festivales, cortometrajes, etc.) que no están incluidas aquí. El motivo es práctico: solo para estas tres modalidades existe el desglose película a película que permite calcular las ayudas recibidas por un director, actor o productora concretos, que es el objetivo principal de esta herramienta.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="https://www.cultura.gob.es/cultura/areas/cine/mc/anuario-cine/portada.html"
+                   target="_blank" rel="noopener" class="source-badge" style="background:#e8f5e9; border-color:#a5d6a7; color:#2e7d32;">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                    Anuario de Cine — Ministerio de Cultura (2003–2014)
+                </a>
+                <a href="https://estadisticas.cultura.gob.es/CulturaJaxiPx/Tabla.htm?path=/t20/p20/a2005/l0/&file=T2001006.px&L=0"
+                   target="_blank" rel="noopener" class="source-badge" style="background:#e8f5e9; border-color:#a5d6a7; color:#2e7d32;">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                    Espectadores por nacionalidad — Ministerio de Cultura
+                </a>
+                <a href="https://estadisticas.cultura.gob.es/CulturaJaxiPx/Tabla.htm?path=/t20/p20/a2005/l0/&file=T2001009.px&L=0"
+                   target="_blank" rel="noopener" class="source-badge" style="background:#e8f5e9; border-color:#a5d6a7; color:#2e7d32;">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                    Recaudación por nacionalidad — Ministerio de Cultura
+                </a>
+            </div>
+        </div>
+    </div>
+
+
+
+</main>
+
+<footer class="footer mt-5 py-5">
+    <div class="container">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <h6 class="text-uppercase mb-3" style="color:rgba(255,255,255,0.4); font-size:0.68rem; letter-spacing:1.5px; font-weight:700;">Fuentes de datos</h6>
+                <ul class="list-unstyled mb-0" style="line-height:2;">
+                    <li>
+                        <i class="bi bi-film me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Taquilla semanal e histórica:
+                        <a href="https://www.cultura.gob.es/cultura/areas/cine/datos/taquilla-espectadores.html" target="_blank" rel="noopener">Ministerio de Cultura</a>
+                    </li>
+                    <li>
+                        <i class="bi bi-bank me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Subvenciones y fichas técnicas:
+                        <a href="https://sede.mcu.gob.es/CatalogoICAA/es-es" target="_blank" rel="noopener">Catálogo ICAA</a>
+                    </li>
+                    <li>
+                        <i class="bi bi-clock-history me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Memorias históricas de subvenciones:
+                        <a href="https://www.cultura.gob.es/cultura/areas/cine/mc/mac/2023.html" target="_blank" rel="noopener">Memorias de Ayudas a la Cinematografía (ICAA)</a>
+                    </li>
+                    <li>
+                        <i class="bi bi-star me-2" style="color:var(--color-accent); font-size:0.75rem;"></i>
+                        Puntuaciones, votaciones e imágenes:
+                        <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>
+                    </li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-uppercase mb-3" style="color:rgba(255,255,255,0.4); font-size:0.68rem; letter-spacing:1.5px; font-weight:700;">Sobre la aplicación</h6>
+                <p class="mb-2">
+                    <i class="bi bi-tools me-2" style="color:var(--color-gold);"></i>
+                    Esta aplicación está en <strong style="color:var(--color-gold);">fase de desarrollo</strong>.
+                    Si encuentras errores o quieres compartir feedback escríbenos a
+                    <a href="mailto:taquilla.attire983@passinbox.com">taquilla.attire983@passinbox.com</a>.
+                </p>
+                <p class="mb-0">
+                    <i class="bi bi-github me-2" style="color:var(--color-gold);"></i>
+                    Código fuente disponible en
+                    <a href="https://github.com/sergiovelayos/taquilla_app" target="_blank" rel="noopener">GitHub</a>
+                    bajo licencia <strong>MIT</strong>.
+                </p>
+            </div>
+        </div>
+        <hr style="border-color:rgba(255,255,255,0.1); margin:1.5rem 0 1rem;">
+        <div class="text-center" style="font-size:0.72rem; opacity:0.4;">
+            © 2026 Insights Taquilla España · Datos de uso libre para fines educativos y de investigación
+        </div>
+    </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+const chartData = {{ chart_data | tojson }};
+
+const years        = chartData.map(d => d.anio);
+const generales    = chartData.map(d => d.generales    / 1e6);
+const selectivas   = chartData.map(d => d.selectivas   / 1e6);
+const amortizacion = chartData.map(d => d.amortizacion / 1e6);
+const produccion   = chartData.map(d => d.produccion   / 1e6);
+const espectadores = chartData.map(d => d.espectadores_esp);  // millones, puede ser null
+const recaudacion  = chartData.map(d => d.recaudacion_esp);   // millones €, puede ser null
+
+const ctx = document.getElementById('subvChart').getContext('2d');
+new Chart(ctx, {
+    data: {
+        labels: years,
+        datasets: [
+            {
+                type: 'bar',
+                label: 'Generales (M€)',
+                data: generales,
+                backgroundColor: '#1a3a6e',
+                stack: 'importe',
+                order: 2,
+            },
+            {
+                type: 'bar',
+                label: 'Selectivas (M€)',
+                data: selectivas,
+                backgroundColor: '#f5c518',
+                stack: 'importe',
+                order: 2,
+            },
+            {
+                type: 'bar',
+                label: 'Amortización (M€)',
+                data: amortizacion,
+                backgroundColor: '#9e9e9e',
+                stack: 'importe',
+                order: 2,
+            },
+            {
+                type: 'bar',
+                label: 'Producción piloto (M€)',
+                data: produccion,
+                backgroundColor: '#5c9bd6',
+                stack: 'importe',
+                order: 2,
+            },
+            {
+                type: 'bar',
+                label: 'Recaudación cine español (M€)',
+                data: recaudacion,
+                backgroundColor: 'rgba(230, 81, 0, 0.75)',
+                stack: 'recaudacion',
+                order: 2,
+            },
+            {
+                type: 'line',
+                label: 'Espectadores cine español (M)',
+                data: espectadores,
+                borderColor: '#2e7d32',
+                backgroundColor: 'rgba(46,125,50,0.10)',
+                borderWidth: 2.5,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#2e7d32',
+                tension: 0.3,
+                yAxisID: 'yEsp',
+                stack: undefined,
+                order: 1,
+                spanGaps: false,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    label: function(ctx) {
+                        if (ctx.dataset.yAxisID === 'yEsp') {
+                            if (ctx.raw === null) return null;
+                            return ` ${ctx.dataset.label}: ${ctx.raw.toFixed(1).replace('.', ',')} M`;
+                        }
+                        const val = ctx.raw;
+                        if (val === 0) return null;
+                        return ` ${ctx.dataset.label}: ${val.toFixed(1).replace('.', ',')} M€`;
+                    },
+                    footer: function(items) {
+                        const totalSub = items
+                            .filter(i => i.dataset.yAxisID !== 'yEsp' && i.dataset.stack !== 'recaudacion')
+                            .reduce((s, i) => s + (i.raw || 0), 0);
+                        const lines = [];
+                        if (totalSub > 0) lines.push(`Total subvenciones: ${totalSub.toFixed(1).replace('.', ',')} M€`);
+                        return lines;
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                grid: { display: false },
+                ticks: { font: { size: 12, weight: '600' } }
+            },
+            y: {
+                stacked: true,
+                title: { display: true, text: 'Subvenciones (millones €)', font: { size: 11 } },
+                ticks: { callback: v => v.toFixed(0) + ' M€' },
+                grid: { color: '#f0f0f0' }
+            },
+            yEsp: {
+                position: 'right',
+                title: { display: true, text: 'Espectadores cine español (M)', font: { size: 11 }, color: '#2e7d32' },
+                grid: { display: false },
+                ticks: {
+                    color: '#2e7d32',
+                    font: { weight: '600' },
+                    callback: v => v.toFixed(0) + ' M'
+                },
+                min: 0,
+                max: Math.ceil(Math.max(...espectadores.filter(v => v !== null)) / 5) * 5 + 5,
+            }
+        }
+    }
+});
+
+function downloadChartCSV() {
+    const headers = [
+        'anio',
+        'generales_eur',
+        'selectivas_eur',
+        'amortizacion_eur',
+        'total_subvenciones_eur',
+        'recaudacion_esp_millones',
+        'espectadores_esp_millones',
+        'peliculas_con_subvencion'
+    ];
+
+    const rows = chartData.map(d => {
+        const total = (d.generales || 0) + (d.selectivas || 0) + (d.amortizacion || 0);
+        return [
+            d.anio,
+            d.generales   || 0,
+            d.selectivas  || 0,
+            d.amortizacion|| 0,
+            total,
+            d.recaudacion_esp  !== null && d.recaudacion_esp  !== undefined ? d.recaudacion_esp  : '',
+            d.espectadores_esp !== null && d.espectadores_esp !== undefined ? d.espectadores_esp : '',
+            d.count || 0
+        ];
+    });
+
+    const csv = [headers, ...rows]
+        .map(r => r.join(','))
+        .join('\n');
+
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'subvenciones_cine_espanol.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
