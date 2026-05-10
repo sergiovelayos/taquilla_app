@@ -243,6 +243,11 @@
             .top-list .top-title { font-size: 0.8rem; }
             .top-list .top-amount { font-size: 0.78rem; }
             .stacked-bar .seg { font-size: 0.6rem; }
+            /* Fix scroll horizontal en móvil: con overflow-y:hidden (no visible, que el
+               spec CSS promueve a auto) el navegador no captura el gesto como scroll-y.
+               min-width fuerza desbordamiento horizontal para que el scroll tenga contenido. */
+            .table-scroll { max-height: none !important; overflow-y: hidden; }
+            .ranking-table { min-width: 650px; }
         }
     </style>
 </head>
@@ -368,10 +373,10 @@
                         <th>Película</th>
                         <th class="text-center" style="width:3rem">Sem.</th>
                         <th class="text-end" style="width:6.5rem">Recaudación</th>
-                        <th class="text-center hide-mobile" style="width:3.5rem">%</th>
-                        <th class="text-end hide-mobile" style="width:6rem">Espectadores</th>
-                        <th class="text-end hide-mobile" style="width:6.5rem">Rec. Acum.</th>
-                        <th class="text-end hide-mobile" style="width:6rem">Esp. Acum.</th>
+                        <th class="text-center" style="width:3.5rem">%</th>
+                        <th class="text-end" style="width:6rem">Espectadores</th>
+                        <th class="text-end" style="width:6.5rem">Rec. Acum.</th>
+                        <th class="text-end" style="width:6rem">Esp. Acum.</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -414,7 +419,7 @@
                             <span class="sem-badge">{{ r.semana }}</span>
                         </td>
                         <td class="text-end fw-semibold">{{ r.recaudacion | euros }}</td>
-                        <td class="text-center hide-mobile">
+                        <td class="text-center">
                             {% set pct_val = r.get('pct_rec', None) %}
                             {% if pct_val is not none and pct_val != '' %}
                                 {% set pv = pct_val | float %}
@@ -429,9 +434,9 @@
                             <span class="pct-neutral" style="font-size:0.72rem">new</span>
                             {% endif %}
                         </td>
-                        <td class="text-end hide-mobile">{{ r.total_espectadores | number }}</td>
-                        <td class="text-end hide-mobile" style="color:var(--color-muted); font-size:0.8rem;">{{ r.recaudacion_acum | euros }}</td>
-                        <td class="text-end hide-mobile" style="color:var(--color-muted); font-size:0.8rem;">{{ r.espectadores_acum | number }}</td>
+                        <td class="text-end">{{ r.total_espectadores | number }}</td>
+                        <td class="text-end" style="color:var(--color-muted); font-size:0.8rem;">{{ r.recaudacion_acum | euros }}</td>
+                        <td class="text-end" style="color:var(--color-muted); font-size:0.8rem;">{{ r.espectadores_acum | number }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -861,10 +866,10 @@
                     <tr>
                         <th style="width:2.5rem" class="text-center">#</th>
                         <th>Título</th>
-                        <th class="hide-mobile">Distribuidora</th>
-                        <th class="hide-mobile text-center" style="width:7rem">Estreno</th>
+                        <th>Distribuidora</th>
+                        <th class="text-center" style="width:7rem">Estreno</th>
                         <th class="text-end" style="width:8rem">Recaudación</th>
-                        <th class="text-end hide-mobile" style="width:7.5rem">Espectadores</th>
+                        <th class="text-end" style="width:7.5rem">Espectadores</th>
                     </tr>
                 </thead>
                 <tbody id="anualTbody">
@@ -1327,10 +1332,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return `<tr>
                 <td class="text-center">${rankBadge(r.rank)}</td>
                 <td><div class="movie-title">${r.titulo}</div></td>
-                <td class="hide-mobile" style="font-size:0.82rem; color:var(--color-muted);">${r.distribuidora}</td>
-                <td class="hide-mobile text-center" style="font-size:0.82rem;">${fmtDate(r.fecha_estreno)}</td>
+                <td style="font-size:0.82rem; color:var(--color-muted);">${r.distribuidora}</td>
+                <td class="text-center" style="font-size:0.82rem;">${fmtDate(r.fecha_estreno)}</td>
                 <td class="text-end">${recBar}</td>
-                <td class="text-end hide-mobile" style="font-size:0.82rem;">${fmtNum(r.espectadores)}</td>
+                <td class="text-end" style="font-size:0.82rem;">${fmtNum(r.espectadores)}</td>
             </tr>`;
         }).join('');
     }
