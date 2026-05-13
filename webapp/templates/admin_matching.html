@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matching - Insights Taquilla España</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' fill='%23e94560' viewBox='0 0 16 16'><path d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1 a1 1 0 0 1-1-1zm4 0v6h8V1zm8 8H4v6h8zM1 1v2h2V1zm2 3H1v2h2zM1 7v2h2V7zm2 3H1v2h2zm-2 3v2h2v-2zM15 1h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2z'/></svg>">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --color-primary: #1a1a2e;
+            --color-secondary: #16213e;
+            --color-accent: #e94560;
+            --color-gold: #f5c518;
+            --color-muted: #6c757d;
+        }
+
+        body { background: #f8f9fa; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+        .navbar { background: var(--color-primary); box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+        .navbar-brand { font-weight: 800; font-size: 1.35rem; color: #fff !important; }
+        .navbar-brand .bi-film { color: var(--color-accent); }
+        .nav-link { color: rgba(255,255,255,0.8) !important; font-weight: 500; }
+        .nav-link:hover, .nav-link.active { color: #fff !important; }
+
+        .page-title { color: var(--color-primary); font-weight: 800; }
+        .kpi {
+            background: #fff; border: 1px solid #e9ecef; border-radius: 8px;
+            padding: 1rem; height: 100%;
+        }
+        .kpi-value { color: var(--color-primary); font-weight: 800; font-size: 1.6rem; line-height: 1; }
+        .kpi-label { color: var(--color-muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.35rem; }
+
+        .work-panel {
+            background: #fff; border: 1px solid #e9ecef; border-radius: 8px;
+            overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .work-panel-header {
+            background: var(--color-primary); color: #fff;
+            padding: 0.85rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        }
+        .work-panel-title { font-weight: 700; }
+        .work-panel-title i { color: var(--color-gold); }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .matching-table { width: 100%; min-width: 980px; margin: 0; }
+        .matching-table thead th {
+            background: var(--color-secondary); color: #fff; border: 0;
+            font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
+            padding: 0.65rem 0.75rem; white-space: nowrap;
+        }
+        .matching-table tbody td {
+            padding: 0.7rem 0.75rem; vertical-align: middle;
+            border-bottom: 1px solid #f0f0f0; font-size: 0.86rem;
+        }
+        .matching-table tbody tr:hover { background: #fff9e8; }
+        .name-main { color: var(--color-primary); font-weight: 700; line-height: 1.2; }
+        .name-sub { color: var(--color-muted); font-size: 0.75rem; margin-top: 0.12rem; }
+        .impact-badge {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            background: #eef2ff; color: #273c75; border-radius: 6px;
+            padding: 0.25rem 0.45rem; font-weight: 700; font-size: 0.78rem;
+        }
+        .score-badge {
+            display: inline-flex; min-width: 3.1rem; justify-content: center;
+            border-radius: 6px; padding: 0.25rem 0.45rem; font-weight: 800;
+            background: #fff3cd; color: #8a6300;
+        }
+        .score-empty { background: #f1f3f5; color: #6c757d; }
+        .inline-form {
+            display: grid; grid-template-columns: minmax(120px, 1fr) auto auto;
+            gap: 0.4rem; align-items: center;
+        }
+        .person-form {
+            display: grid; grid-template-columns: minmax(110px, 0.65fr) minmax(160px, 1fr) auto auto;
+            gap: 0.4rem; align-items: center;
+        }
+        .btn-icon { width: 2.25rem; height: 2.25rem; display: inline-flex; align-items: center; justify-content: center; }
+        .empty-state { padding: 2rem; text-align: center; color: var(--color-muted); }
+        .tmdb-link, .icaa-link { color: var(--color-primary); text-decoration: none; font-weight: 700; }
+        .tmdb-link:hover, .icaa-link:hover { color: var(--color-accent); }
+
+        @media (max-width: 767.98px) {
+            .matching-table { min-width: 900px; }
+            .inline-form { grid-template-columns: 1fr auto auto; }
+            .person-form { grid-template-columns: 1fr 1fr auto auto; }
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg">
+    <div class="container">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-film me-2"></i>Insights Taquilla España
+        </a>
+        <div class="navbar-nav me-auto gap-1">
+            <a class="nav-link" href="/calculadora"><i class="bi bi-calculator"></i> Calculadora</a>
+            <a class="nav-link" href="/subvenciones-historico"><i class="bi bi-clock-history"></i> Histórico</a>
+            <a class="nav-link active" href="/admin/matching"><i class="bi bi-intersect"></i> Matching</a>
+        </div>
+        <a class="nav-link" href="/">Inicio</a>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
+        <div>
+            <h1 class="page-title h2 mb-1">Resolución de Matching</h1>
+            <div class="text-muted">ICAA, TMDB y equivalencias revisadas manualmente</div>
+        </div>
+    </div>
+
+    {% if msg %}
+    <div class="alert alert-success border-0 shadow-sm"><i class="bi bi-check-circle me-1"></i>{{ msg }}</div>
+    {% endif %}
+    {% if err %}
+    <div class="alert alert-danger border-0 shadow-sm"><i class="bi bi-exclamation-triangle me-1"></i>{{ err }}</div>
+    {% endif %}
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="kpi">
+                <div class="kpi-value">{{ stats.icaa_pending }}</div>
+                <div class="kpi-label">Títulos ICAA</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi">
+                <div class="kpi-value">{{ stats.people_pending }}</div>
+                <div class="kpi-label">Personas TMDB</div>
+            </div>
+        </div>
+    </div>
+
+    <ul class="nav nav-pills mb-3">
+        <li class="nav-item">
+            <a class="nav-link {% if tab != 'personas' %}active{% endif %}" href="{{ url_for('admin_matching', tab='icaa', token=token) }}">
+                <i class="bi bi-camera-reels me-1"></i>Películas ICAA
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if tab == 'personas' %}active{% endif %}" href="{{ url_for('admin_matching', tab='personas', token=token) }}">
+                <i class="bi bi-person-vcard me-1"></i>Personas TMDB
+            </a>
+        </li>
+    </ul>
+
+    {% if tab == 'personas' %}
+    <section class="work-panel">
+        <div class="work-panel-header">
+            <div class="work-panel-title"><i class="bi bi-person-vcard me-2"></i>Personas pendientes</div>
+            <span class="badge text-bg-light">{{ people_pending|length }} visibles</span>
+        </div>
+        {% if people_pending %}
+        <div class="table-wrap">
+            <table class="table matching-table">
+                <thead>
+                    <tr>
+                        <th>Nombre ICAA</th>
+                        <th>Match TMDB actual</th>
+                        <th>Roles</th>
+                        <th>Score</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in people_pending %}
+                    <tr>
+                        <td>
+                            <div class="name-main">{{ p.nombre_icaa }}</div>
+                            {% if p.foto_url %}
+                            <div class="name-sub"><i class="bi bi-image me-1"></i>con foto</div>
+                            {% else %}
+                            <div class="name-sub"><i class="bi bi-image me-1"></i>sin foto</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if p.tmdb_id %}
+                            <a class="tmdb-link" href="https://www.themoviedb.org/person/{{ p.tmdb_id }}" target="_blank" rel="noreferrer">
+                                {{ p.nombre_tmdb or ('TMDB ' ~ p.tmdb_id) }}
+                            </a>
+                            <div class="name-sub">ID {{ p.tmdb_id }}</div>
+                            {% else %}
+                            <span class="text-muted">Sin ID</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for role in p.roles or [] %}
+                            <span class="badge bg-secondary-subtle text-secondary border">{{ role }}</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if p.match_score is not none %}
+                            <span class="score-badge">{{ "%.2f"|format(p.match_score) }}</span>
+                            {% else %}
+                            <span class="score-badge score-empty">n/d</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form class="person-form" action="{{ url_for('admin_matching_persona_save') }}" method="post">
+                                <input type="hidden" name="token" value="{{ token }}">
+                                <input type="hidden" name="nombre_icaa" value="{{ p.nombre_icaa }}">
+                                <input class="form-control form-control-sm" type="number" name="tmdb_id" placeholder="TMDB ID" min="1">
+                                <input class="form-control form-control-sm" type="text" name="notas" placeholder="Notas">
+                                <button class="btn btn-sm btn-success btn-icon" name="action" value="save_id" title="Aceptar o guardar TMDB ID">
+                                    <i class="bi bi-check2"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary btn-icon" name="action" value="no_tmdb" title="Sin ficha TMDB">
+                                    <i class="bi bi-slash-circle"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay personas pendientes en esta cola.</div>
+        {% endif %}
+    </section>
+    {% else %}
+    <section class="work-panel">
+        <div class="work-panel-header">
+            <div class="work-panel-title"><i class="bi bi-camera-reels me-2"></i>Títulos anual_esp sin ficha ICAA</div>
+            <span class="badge text-bg-light">{{ icaa_pending|length }} visibles</span>
+        </div>
+        {% if icaa_pending %}
+        <div class="table-wrap">
+            <table class="table matching-table">
+                <thead>
+                    <tr>
+                        <th>Título</th>
+                        <th>Normalizado</th>
+                        <th>Estreno</th>
+                        <th>Impacto</th>
+                        <th>Expediente ICAA</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in icaa_pending %}
+                    <tr>
+                        <td>
+                            <div class="name-main">{{ row.titulo }}</div>
+                            <a class="icaa-link name-sub" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>Catálogo ICAA
+                            </a>
+                        </td>
+                        <td><span class="text-muted">{{ row.titulo_normalizado }}</span></td>
+                        <td>{{ row.fecha_estreno or 'n/d' }}</td>
+                        <td>
+                            <span class="impact-badge"><i class="bi bi-cash-stack"></i>{{ row.recaudacion_total|euros_short }}</span>
+                            <span class="impact-badge ms-1"><i class="bi bi-people"></i>{{ row.espectadores_total|number }}</span>
+                        </td>
+                        <td>
+                            <form class="inline-form" action="{{ url_for('admin_matching_icaa_save') }}" method="post">
+                                <input type="hidden" name="token" value="{{ token }}">
+                                <input type="hidden" name="titulo" value="{{ row.titulo }}">
+                                <input class="form-control form-control-sm" type="number" name="expediente_icaa" placeholder="ID ICAA" min="1" required>
+                                <button class="btn btn-sm btn-success btn-icon" title="Guardar">
+                                    <i class="bi bi-check2"></i>
+                                </button>
+                                <a class="btn btn-sm btn-outline-secondary btn-icon" title="Buscar" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
+                                    <i class="bi bi-search"></i>
+                                </a>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay títulos pendientes en esta cola.</div>
+        {% endif %}
+    </section>
+    {% endif %}
+</main>
+</body>
+</html>

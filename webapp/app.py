@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
 from dotenv import load_dotenv
 import psycopg2
 import psycopg2.extras
@@ -36,6 +36,17 @@ def query(sql, params=None):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def execute(sql, params=None):
+    """Execute a write query and commit it."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+        conn.commit()
     finally:
         conn.close()
 
@@ -1128,6 +1139,186 @@ def detalle_pelicula(expediente_icaa):
             director_tmdb = tmdb_res[0]
 
     return render_template('pelicula_detalle.html', p=pelicula, director_tmdb=director_tmdb)
+
+
+# ---------------------------------------------------------------------------
+# Matching review
+# ---------------------------------------------------------------------------
+
+TITLE_NORM_SQL = """
+regexp_replace(
+    unaccent(LOWER(TRIM(
+        regexp_replace(split_part({field}, ',', 1), '\\([^)]*\\)', '', 'g')
+    ))),
+    '^(el|la|los|las|un|una|unos|unas)\\s+', ''
+)
+"""
+
+
+def ensure_matching_schema():
+    """Create lightweight fields needed by the manual matching UI."""
+    execute("""
+        ALTER TABLE icaa_fichas
+        ADD COLUMN IF NOT EXISTS titulo_anual_esp TEXT;
+    """)
+    execute("""
+        CREATE INDEX IF NOT EXISTS icaa_titulo_anual_esp_idx
+        ON icaa_fichas (titulo_anual_esp);
+    """)
+
+
+def get_icaa_matching_pending(limit=25):
+    """Titles from anual_esp that still do not map to an ICAA ficha."""
+    norm_a = TITLE_NORM_SQL.format(field='a.titulo')
+    norm_i = TITLE_NORM_SQL.format(field='i.titulo')
+    return query(f"""
+        SELECT
+            a.titulo,
+            {norm_a} AS titulo_normalizado,
+            MIN(a.fecha_estreno) AS fecha_estreno,
+            SUM(a.recaudacion) AS recaudacion_total,
+            SUM(a.espectadores) AS espectadores_total,
+            COUNT(*) AS filas
+        FROM anual_esp a
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM icaa_fichas i
+            WHERE i.titulo_anual_esp = a.titulo
+               OR {norm_i} = {norm_a}
+        )
+        GROUP BY a.titulo, titulo_normalizado
+        ORDER BY recaudacion_total DESC NULLS LAST, fecha_estreno DESC NULLS LAST
+        LIMIT %s
+    """, [limit])
+
+
+def get_tmdb_people_pending(limit=50):
+    """People rows whose TMDB match likely needs human review."""
+    return query("""
+        SELECT nombre_icaa, nombre_tmdb, tmdb_id, roles, match_score,
+               popularidad, foto_url, notas
+        FROM tmdb_gente
+        WHERE COALESCE(revisado_manual, FALSE) = FALSE
+          AND (
+              tmdb_id IS NULL
+              OR foto_url IS NULL
+              OR match_score IS NULL
+              OR match_score < 0.75
+          )
+        ORDER BY
+            CASE WHEN tmdb_id IS NULL THEN 0 ELSE 1 END,
+            match_score ASC NULLS FIRST,
+            popularidad DESC NULLS LAST,
+            nombre_icaa ASC
+        LIMIT %s
+    """, [limit])
+
+
+def require_matching_admin():
+    """Require a shared token when MATCHING_ADMIN_TOKEN is configured."""
+    expected = os.getenv('MATCHING_ADMIN_TOKEN')
+    provided = request.values.get('token')
+    if expected and provided != expected:
+        abort(403)
+    return provided or ''
+
+
+@app.route('/admin/matching')
+def admin_matching():
+    token = require_matching_admin()
+    ensure_matching_schema()
+    tab = request.args.get('tab', 'icaa')
+    msg = request.args.get('msg')
+    err = request.args.get('err')
+
+    icaa_pending = get_icaa_matching_pending(25)
+    people_pending = get_tmdb_people_pending(50)
+
+    stats = {
+        'icaa_pending': len(icaa_pending),
+        'people_pending': len(people_pending),
+    }
+    return render_template(
+        'admin_matching.html',
+        tab=tab,
+        msg=msg,
+        err=err,
+        token=token,
+        stats=stats,
+        icaa_pending=icaa_pending,
+        people_pending=people_pending,
+    )
+
+
+@app.route('/admin/matching/icaa', methods=['POST'])
+def admin_matching_icaa_save():
+    token = require_matching_admin()
+    ensure_matching_schema()
+    titulo = request.form.get('titulo', '').strip()
+    expediente_icaa = request.form.get('expediente_icaa', '').strip()
+
+    if not titulo or not expediente_icaa:
+        return redirect(url_for('admin_matching', tab='icaa', token=token, err='Falta el titulo o el expediente ICAA.'))
+
+    execute("""
+        INSERT INTO icaa_fichas (expediente_icaa, titulo, titulo_anual_esp)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (expediente_icaa) DO UPDATE
+        SET titulo_anual_esp = EXCLUDED.titulo_anual_esp,
+            titulo = COALESCE(NULLIF(icaa_fichas.titulo, ''), EXCLUDED.titulo);
+    """, [expediente_icaa, titulo, titulo])
+
+    return redirect(url_for('admin_matching', tab='icaa', token=token, msg=f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa}.'))
+
+
+@app.route('/admin/matching/persona', methods=['POST'])
+def admin_matching_persona_save():
+    token = require_matching_admin()
+    nombre_icaa = request.form.get('nombre_icaa', '').strip()
+    tmdb_id = request.form.get('tmdb_id', '').strip()
+    action = request.form.get('action', 'reviewed')
+    notas = request.form.get('notas', '').strip()
+
+    if not nombre_icaa:
+        return redirect(url_for('admin_matching', tab='personas', token=token, err='Falta el nombre ICAA.'))
+
+    if action == 'no_tmdb':
+        execute("""
+            UPDATE tmdb_gente
+            SET tmdb_id = NULL,
+                revisado_manual = TRUE,
+                notas = COALESCE(NULLIF(%s, ''), 'Confirmado: sin ficha TMDB'),
+                updated_at = NOW()
+            WHERE nombre_icaa = %s;
+        """, [notas, nombre_icaa])
+        msg = f'Marcado sin TMDB: {nombre_icaa}.'
+    elif tmdb_id:
+        try:
+            tmdb_id_int = int(tmdb_id)
+        except ValueError:
+            return redirect(url_for('admin_matching', tab='personas', token=token, err='El TMDB ID debe ser numerico.'))
+
+        execute("""
+            UPDATE tmdb_gente
+            SET tmdb_id = %s,
+                revisado_manual = TRUE,
+                notas = COALESCE(NULLIF(%s, ''), notas),
+                updated_at = NOW()
+            WHERE nombre_icaa = %s;
+        """, [tmdb_id_int, notas, nombre_icaa])
+        msg = f'TMDB ID guardado para {nombre_icaa}.'
+    else:
+        execute("""
+            UPDATE tmdb_gente
+            SET revisado_manual = TRUE,
+                notas = COALESCE(NULLIF(%s, ''), notas),
+                updated_at = NOW()
+            WHERE nombre_icaa = %s;
+        """, [notas, nombre_icaa])
+        msg = f'Persona marcada como revisada: {nombre_icaa}.'
+
+    return redirect(url_for('admin_matching', tab='personas', token=token, msg=msg))
+
 
 # ---------------------------------------------------------------------------
 # Routes

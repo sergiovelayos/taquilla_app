@@ -34,3 +34,6 @@ fi
 
 echo "=== Weekly Update Finished: $(date) ===" >> "$LOG_FILE"
 echo "" >> "$LOG_FILE"
+
+# Marca de éxito para el reintento de mediodía
+date +%Y-%m-%d > "$SCRIPT_DIR/logs/.last_success_date"
