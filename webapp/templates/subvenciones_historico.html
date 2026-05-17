@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Subvenciones Históricas al Cine Español (2015-2023) - Insights Taquilla España</title>
+    <title>Subvenciones Históricas al Cine Español (2006-2025) - Insights Taquilla España</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' fill='%23e94560' viewBox='0 0 16 16'><path d='M0 1a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H1 a1 1 0 0 1-1-1zm4 0v6h8V1zm8 8H4v6h8zM1 1v2h2V1zm2 3H1v2h2zM1 7v2h2V7zm2 3H1v2h2zm-2 3v2h2v-2zM15 1h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2zm-2 3h2v2h-2zm2 3h-2v2h2z'/></svg>">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -136,10 +136,10 @@
                 <h1><i class="bi bi-bank2 me-2" style="color:var(--color-gold);"></i>Subvenciones Históricas al Cine Español</h1>
                 <p class="subtitle mb-3">
                     Evolución de las ayudas del ICAA (Instituto de la Cinematografía y de las Artes Audiovisuales)
-                    a la producción de largometrajes entre 2015 y 2023, basada en las Memorias de Ayudas a la Cinematografía publicadas por el Ministerio de Cultura.
+                    a la producción de largometrajes entre 2006 y 2025, basada en las Memorias de Ayudas a la Cinematografía publicadas por el Ministerio de Cultura.
                 </p>
                 <a href="https://www.cultura.gob.es/cultura/areas/cine/mc/mac/2023.html" target="_blank" class="source-badge">
-                    <i class="bi bi-file-earmark-pdf"></i> Fuente: Ministerio de Cultura — Memoria de Ayudas a la Cinematografía (2015-2023)
+                    <i class="bi bi-file-earmark-pdf"></i> Fuente: Ministerio de Cultura — Memoria de Ayudas a la Cinematografía (2006-2025)
                 </a>
             </div>
         </div>
@@ -149,26 +149,26 @@
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
             <div class="stat-card">
-                <div class="stat-value">2.081</div>
-                <div class="stat-label">Películas subvencionadas (2008–2025)</div>
+                <div class="stat-value">{{ db_stats.peliculas | number if db_stats.peliculas else '—' }}</div>
+                <div class="stat-label">Películas subvencionadas ({{ db_stats.desde }}–{{ db_stats.hasta }})</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="stat-card">
-                <div class="stat-value">{{ stats.total_importe | euros_short }}</div>
-                <div class="stat-label">Total subvencionado</div>
+                <div class="stat-value">{{ db_stats.total_importe | euros_short if db_stats.total_importe else '—' }}</div>
+                <div class="stat-label">Total subvencionado ({{ db_stats.desde }}–{{ db_stats.hasta }})</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="stat-card">
-                <div class="stat-value">{{ stats.max_anio }}</div>
-                <div class="stat-label">Año récord ({{ stats.max_importe | euros_short }})</div>
+                <div class="stat-value">{{ db_stats.max_anio or '—' }}</div>
+                <div class="stat-label">Año récord ({{ db_stats.max_importe | euros_short if db_stats.max_importe else '—' }})</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="stat-card">
-                <div class="stat-value">{% if stats.cagr_pct is not none %}+{{ stats.cagr_pct | decimal }}%{% else %}—{% endif %}</div>
-                <div class="stat-label">Crecimiento anual medio 2003–2025</div>
+                <div class="stat-value">{% if db_stats.cagr_pct is not none %}+{{ db_stats.cagr_pct | decimal }}%{% else %}—{% endif %}</div>
+                <div class="stat-label">Crecimiento anual medio {{ db_stats.desde }}–{{ db_stats.hasta }}</div>
                 <div style="font-size:0.68rem; opacity:0.6; margin-top:0.3rem;">CAGR · media 3 años inicio y fin</div>
             </div>
         </div>
@@ -203,6 +203,75 @@
         </div>
     </div>
 
+    <!-- Tabla detalle por película -->
+    <div class="card-block mb-4">
+        <div class="card-block-header d-flex align-items-center gap-2">
+            <i class="bi bi-table"></i>
+            <span>Detalle de ayudas por película (2006–2025)</span>
+            <span class="ms-auto" id="rowCount" style="font-size:0.8rem; opacity:0.75;"></span>
+        </div>
+        <div class="p-3">
+            <!-- Filtros -->
+            <div class="row g-2 mb-3">
+                <div class="col-sm-4 col-md-2">
+                    <select id="filterAnio" class="form-select form-select-sm">
+                        <option value="">Todos los años</option>
+                    </select>
+                </div>
+                <div class="col-sm-4 col-md-2">
+                    <select id="filterIcaa" class="form-select form-select-sm">
+                        <option value="">Todas las fichas</option>
+                        <option value="1">Con ficha ICAA</option>
+                        <option value="0">Sin ficha ICAA</option>
+                    </select>
+                </div>
+                <div class="col-sm-4 col-md-5">
+                    <input type="search" id="filterTitulo" class="form-control form-control-sm" placeholder="Buscar título…">
+                </div>
+                <div class="col-md-3 d-flex align-items-center">
+                    <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetFilters()">
+                        <i class="bi bi-x-circle me-1"></i>Limpiar filtros
+                    </button>
+                </div>
+            </div>
+            <!-- Tabla -->
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-1" style="font-size:0.83rem;">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="sortable" data-col="titulo" style="cursor:pointer; min-width:220px;">
+                                Título <i class="bi bi-arrow-down-up ms-1 sort-icon" style="font-size:0.7rem;opacity:0.5;"></i>
+                            </th>
+                            <th class="sortable text-center" data-col="anio_ayuda" style="cursor:pointer;">
+                                Año <i class="bi bi-arrow-down-up ms-1 sort-icon" style="font-size:0.7rem;opacity:0.5;"></i>
+                            </th>
+                            <th class="sortable text-end" data-col="importe_ayuda" style="cursor:pointer; white-space:nowrap;">
+                                Importe ayuda <i class="bi bi-arrow-down-up ms-1 sort-icon" style="font-size:0.7rem;opacity:0.5;"></i>
+                            </th>
+                            <th class="sortable text-end" data-col="presupuesto_proyecto" style="cursor:pointer; white-space:nowrap;">
+                                Presupuesto <i class="bi bi-arrow-down-up ms-1 sort-icon" style="font-size:0.7rem;opacity:0.5;"></i>
+                            </th>
+                            <th class="text-center" style="white-space:nowrap; width:80px;">ICAA</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subvTableBody"></tbody>
+                </table>
+            </div>
+            <!-- Paginación -->
+            <div class="d-flex justify-content-between align-items-center mt-2">
+                <div id="pageInfo" style="font-size:0.8rem; color:#6c757d;"></div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="changePage(-1)">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="changePage(1)">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Espectadores data source block -->
     <div class="card-block mb-4">
         <div class="card-block-header d-flex align-items-center gap-2">
@@ -217,7 +286,7 @@
                 La correlación con las subvenciones no es directa: el impacto de las ayudas anticipadas (generales y selectivas) se refleja en los espectadores con un desfase de 1-3 años, que es el tiempo típico entre la concesión de la subvención y el estreno en salas. Se observa una tendencia bajista en la audiencia del cine español a pesar del incremento sostenido de las subvenciones, con el mínimo histórico del periodo en los años pandémicos (2020-2021) y una recuperación parcial en 2022-2023 que no alcanza los niveles pre-pandemia.
             </p>
             <p style="font-size:0.87rem; color:#444; line-height:1.65; margin-bottom:0.75rem;">
-                <strong>Cobertura temporal:</strong> para el período <strong>2015–2023</strong> los datos de subvenciones proceden de las Memorias Anuales del ICAA, con detalle película a película. Para los años <strong>2003–2014 y 2024–2025</strong>, las subvenciones son totales anuales agregados procedentes del <strong>Anuario de Cine</strong> del Ministerio de Cultura; los datos de espectadores y recaudación se obtienen de la Estadística de Cinematografía (tablas T2001006 y T2001009).
+                <strong>Cobertura temporal:</strong> para el período <strong>2006–2025</strong> los datos de subvenciones proceden de las Memorias Anuales del ICAA, con detalle película a película (tabla de detalle más abajo). El gráfico de barras muestra datos agregados por año: para los años anteriores a 2006 y para los totales anuales, las cifras proceden del <strong>Anuario de Cine</strong> del Ministerio de Cultura. Los datos de espectadores y recaudación se obtienen de la Estadística de Cinematografía (tablas T2001006 y T2001009).
             </p>
             <p style="font-size:0.87rem; color:#444; line-height:1.65; margin-bottom:1rem;">
                 <strong>Alcance de las ayudas contabilizadas:</strong> las cifras de subvenciones recogen únicamente las <strong>ayudas generales, selectivas y de amortización</strong> a la producción de largometrajes. El ICAA concede también otras líneas de ayuda (distribución, exhibición, festivales, cortometrajes, etc.) que no están incluidas aquí. El motivo es práctico: solo para estas tres modalidades existe el desglose película a película que permite calcular las ayudas recibidas por un director, actor o productora concretos, que es el objetivo principal de esta herramienta.
@@ -465,6 +534,125 @@ function downloadChartCSV() {
     a.click();
     URL.revokeObjectURL(url);
 }
+</script>
+
+<script>
+(function () {
+    const RAW      = {{ subvenciones_table | tojson }};
+    const PAGE_SIZE = 50;
+
+    let filtered = [...RAW];
+    let sortCol  = 'anio_ayuda';
+    let sortDir  = -1;
+    let page     = 0;
+
+    // Poblar selector de años
+    const years   = [...new Set(RAW.map(r => r.anio_ayuda))].sort((a, b) => b - a);
+    const selAnio = document.getElementById('filterAnio');
+    const selIcaa = document.getElementById('filterIcaa');
+    years.forEach(y => {
+        const o = document.createElement('option');
+        o.value = y; o.textContent = y;
+        selAnio.appendChild(o);
+    });
+
+    function fmtEur(v) {
+        if (v === null || v === undefined) return '—';
+        return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v) + ' €';
+    }
+
+    function applyFilters() {
+        const anio   = selAnio.value;
+        const icaa   = selIcaa.value;
+        const titulo = document.getElementById('filterTitulo').value.trim().toLowerCase();
+        filtered = RAW.filter(r =>
+            (!anio   || String(r.anio_ayuda) === anio) &&
+            (icaa === '' || (icaa === '1' ? !!r.expediente_icaa : !r.expediente_icaa)) &&
+            (!titulo || r.titulo.toLowerCase().includes(titulo))
+        );
+        applySort();
+        page = 0;
+        render();
+    }
+
+    function applySort() {
+        filtered.sort((a, b) => {
+            let va = a[sortCol], vb = b[sortCol];
+            if (va === null || va === undefined) va = sortDir === 1 ? Infinity : -Infinity;
+            if (vb === null || vb === undefined) vb = sortDir === 1 ? Infinity : -Infinity;
+            if (typeof va === 'string') return va.localeCompare(vb, 'es') * sortDir;
+            return (va - vb) * sortDir;
+        });
+    }
+
+    function render() {
+        const total = filtered.length;
+        const start = page * PAGE_SIZE;
+        const slice = filtered.slice(start, start + PAGE_SIZE);
+
+        document.getElementById('rowCount').textContent = total.toLocaleString('es-ES') + ' películas';
+        document.getElementById('pageInfo').textContent =
+            `Página ${page + 1} de ${Math.max(1, Math.ceil(total / PAGE_SIZE))} · ${total.toLocaleString('es-ES')} resultados`;
+        document.getElementById('btnPrev').disabled = page === 0;
+        document.getElementById('btnNext').disabled = start + PAGE_SIZE >= total;
+
+        const tbody = document.getElementById('subvTableBody');
+        tbody.innerHTML = slice.map(r => {
+            const tituloCell = r.expediente_icaa
+                ? `<a href="/pelicula/${r.expediente_icaa}" class="text-decoration-none fw-semibold text-primary">${r.titulo}</a>`
+                : `<span class="fw-semibold text-dark">${r.titulo}</span>`;
+            const icaaCell = r.expediente_icaa
+                ? `<a href="/pelicula/${r.expediente_icaa}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.7rem;" title="Ver ficha ICAA">
+                       <i class="bi bi-box-arrow-up-right"></i>
+                   </a>`
+                : `<span class="text-muted" style="font-size:0.75rem;">—</span>`;
+            return `<tr>
+                <td>${tituloCell}</td>
+                <td class="text-center text-muted">${r.anio_ayuda}</td>
+                <td class="text-end fw-bold">${fmtEur(r.importe_ayuda)}</td>
+                <td class="text-end text-muted">${fmtEur(r.presupuesto_proyecto)}</td>
+                <td class="text-center">${icaaCell}</td>
+            </tr>`;
+        }).join('');
+
+        // Iconos de ordenación
+        document.querySelectorAll('.sortable').forEach(th => {
+            const icon = th.querySelector('.sort-icon');
+            if (th.dataset.col === sortCol) {
+                icon.className = `bi ${sortDir === 1 ? 'bi-arrow-up' : 'bi-arrow-down'} ms-1 sort-icon`;
+                icon.style.opacity = '1';
+            } else {
+                icon.className = 'bi bi-arrow-down-up ms-1 sort-icon';
+                icon.style.opacity = '0.35';
+            }
+        });
+    }
+
+    window.changePage  = dir => { page += dir; render(); };
+    window.resetFilters = () => {
+        selAnio.value = ''; selIcaa.value = '';
+        document.getElementById('filterTitulo').value = '';
+        sortCol = 'anio_ayuda'; sortDir = -1; page = 0;
+        applyFilters();
+    };
+
+    selAnio.addEventListener('change', applyFilters);
+    selIcaa.addEventListener('change', applyFilters);
+    document.getElementById('filterTitulo').addEventListener('input', applyFilters);
+    document.querySelectorAll('.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.col;
+            sortDir = (sortCol === col) ? sortDir * -1 : 1;
+            sortCol = col;
+            page = 0;
+            applySort();
+            render();
+        });
+    });
+
+    applySort();
+    render();
+})();
 </script>
 
 </body>

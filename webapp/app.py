@@ -1553,13 +1553,95 @@ def get_subvenciones_historico():
     return chart_data, stats, hitos
 
 
+def get_subvenciones_db_stats():
+    """KPI stats computed directly from the subvenciones table."""
+    try:
+        totals = query("""
+            SELECT COUNT(DISTINCT titulo) AS peliculas,
+                   SUM(importe_ayuda)     AS total_importe,
+                   MIN(anio_ayuda)        AS desde,
+                   MAX(anio_ayuda)        AS hasta
+            FROM subvenciones
+        """)
+        year_max = query("""
+            SELECT anio_ayuda, SUM(importe_ayuda) AS total
+            FROM subvenciones
+            GROUP BY anio_ayuda
+            ORDER BY total DESC
+            LIMIT 1
+        """)
+        by_year = query("""
+            SELECT anio_ayuda, SUM(importe_ayuda) AS total
+            FROM subvenciones
+            GROUP BY anio_ayuda
+            ORDER BY anio_ayuda
+        """)
+
+        peliculas   = totals[0]['peliculas']     if totals    else 0
+        total_imp   = to_float(totals[0]['total_importe']) if totals else 0
+        desde       = totals[0]['desde']         if totals    else 2006
+        hasta       = totals[0]['hasta']         if totals    else 2025
+        max_anio    = year_max[0]['anio_ayuda']  if year_max  else None
+        max_importe = to_float(year_max[0]['total']) if year_max else 0
+
+        yt = {r['anio_ayuda']: to_float(r['total']) for r in by_year}
+        def _yt(y): return yt.get(y, 0)
+        # CAGR: 3-year window 2006-2008 vs 2023-2025 (midpoints 2007→2024, n=17)
+        start_avg = sum(_yt(y) for y in [2006, 2007, 2008]) / 3
+        end_avg   = sum(_yt(y) for y in [2023, 2024, 2025]) / 3
+        if start_avg > 0 and end_avg > 0:
+            cagr_pct = round(((end_avg / start_avg) ** (1 / 17) - 1) * 100, 1)
+        else:
+            cagr_pct = None
+
+        return {
+            'peliculas':    peliculas,
+            'total_importe': total_imp,
+            'max_anio':     max_anio,
+            'max_importe':  max_importe,
+            'desde':        desde,
+            'hasta':        hasta,
+            'cagr_pct':     cagr_pct,
+        }
+    except Exception:
+        return {}
+
+
+def get_subvenciones_db_table():
+    """All rows from the aggregated subvenciones table for the interactive detail table."""
+    try:
+        rows = query("""
+            SELECT titulo, importe_ayuda, presupuesto_proyecto, anio_ayuda,
+                   expediente_icaa, tmdb_id
+            FROM subvenciones
+            ORDER BY anio_ayuda DESC, titulo ASC
+        """)
+        return [
+            {
+                'titulo':               r['titulo'],
+                'importe_ayuda':        float(r['importe_ayuda'] or 0),
+                'presupuesto_proyecto': float(r['presupuesto_proyecto']) if r['presupuesto_proyecto'] is not None else None,
+                'anio_ayuda':           r['anio_ayuda'],
+                'expediente_icaa':      r['expediente_icaa'],
+                'tmdb_id':              r['tmdb_id'],
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
 @app.route('/subvenciones-historico')
 def subvenciones_historico():
     chart_data, stats, hitos = get_subvenciones_historico()
+    db_stats         = get_subvenciones_db_stats()
+    subvenciones_table = get_subvenciones_db_table()
     return render_template('subvenciones_historico.html',
                            chart_data=chart_data,
                            stats=stats,
-                           hitos=hitos)
+                           hitos=hitos,
+                           db_stats=db_stats,
+                           subvenciones_table=subvenciones_table)
 
 
 if __name__ == '__main__':

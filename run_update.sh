@@ -16,12 +16,16 @@ echo "=== Weekly Update Started: $(date) ===" >> "$LOG_FILE"
 
 # 1. Update Box Office Data (PDF Scraping & Parsing)
 echo "[$(date)] Phase 1: Taquilla PDF Update..." >> "$LOG_FILE"
-if "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" "$@"; then
-    echo "[$(date)] Phase 1 completed successfully." >> "$LOG_FILE"
-else
-    echo "[$(date)] Phase 1 failed. Check logs/update.log for details." >> "$LOG_FILE"
-    exit 1
-fi
+"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" "$@" || {
+    EXIT_CODE=$?
+    if [ "$EXIT_CODE" -eq 1 ]; then
+        echo "[$(date)] Phase 1: no new PDFs found. Continuing." >> "$LOG_FILE"
+    else
+        echo "[$(date)] Phase 1 failed (exit $EXIT_CODE). Check logs/update.log for details." >> "$LOG_FILE"
+        exit "$EXIT_CODE"
+    fi
+}
+echo "[$(date)] Phase 1 completed." >> "$LOG_FILE"
 
 # 2. Enrich with TMDB Data
 echo "[$(date)] Phase 2: TMDB Enrichment..." >> "$LOG_FILE"
