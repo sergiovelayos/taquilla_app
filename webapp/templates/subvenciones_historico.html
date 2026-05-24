@@ -598,11 +598,16 @@ function downloadChartCSV() {
 
         const tbody = document.getElementById('subvTableBody');
         tbody.innerHTML = slice.map(r => {
-            const tituloCell = r.expediente_icaa
+            const icaaUrl = `https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Detalle?Pelicula=${r.expediente_icaa}`;
+            const tituloCell = r.tiene_ficha_local
                 ? `<a href="/pelicula/${r.expediente_icaa}" class="text-decoration-none fw-semibold text-primary">${r.titulo}</a>`
                 : `<span class="fw-semibold text-dark">${r.titulo}</span>`;
-            const icaaCell = r.expediente_icaa
+            const icaaCell = r.tiene_ficha_local
                 ? `<a href="/pelicula/${r.expediente_icaa}" class="btn btn-outline-primary btn-sm py-0 px-1" style="font-size:0.7rem;" title="Ver ficha ICAA">
+                       <i class="bi bi-box-arrow-up-right"></i>
+                   </a>`
+                : r.expediente_icaa
+                ? `<a href="${icaaUrl}" target="_blank" rel="noreferrer" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:0.7rem;" title="Ver ficha en catálogo ICAA">
                        <i class="bi bi-box-arrow-up-right"></i>
                    </a>`
                 : `<span class="text-muted" style="font-size:0.75rem;">—</span>`;

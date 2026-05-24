@@ -10,7 +10,8 @@
 La página de **Resolución de Matching** permite corregir desde la web algunos de los joins por nombre que antes requerían scripts o SQL manual:
 
 1. Títulos de `anual_esp` que todavía no están vinculados con una ficha de `icaa_fichas`.
-2. Personas de `tmdb_gente` cuyo match automático con TMDB necesita revisión.
+2. Títulos de `subvenciones` que todavía no tienen una ficha ICAA asociada.
+3. Personas de `tmdb_gente` cuyo match automático con TMDB necesita revisión.
 
 El MVP no sustituye todavía todo el sistema de matching del proyecto. Su objetivo es concentrar en una interfaz operativa las dos colas de revisión manual más frecuentes, reducir trabajo por terminal y dejar una base sobre la que ampliar aliases y decisiones reutilizables.
 
@@ -53,9 +54,11 @@ La página tiene dos pestañas:
 | Pestaña | Fuente | Finalidad |
 |---|---|---|
 | `Películas ICAA` | `anual_esp` + `icaa_fichas` | Resolver títulos sin ficha ICAA asociada |
+| `Subvenciones ICAA` | `subvenciones` + `subvenciones_icaa_matches` | Vincular títulos históricos de subvenciones con expedientes ICAA |
 | `Personas TMDB` | `tmdb_gente` | Revisar personas con match dudoso, sin ID o sin foto |
 
 En la parte superior se muestran contadores de elementos visibles en cada cola.
+Los contadores son enlaces y llevan directamente a la pestaña correspondiente.
 
 ---
 
@@ -127,7 +130,60 @@ El script sigue siendo útil para operaciones más avanzadas, especialmente `--f
 
 ---
 
-## 2. Personas TMDB
+## 2. Subvenciones ICAA
+
+### Qué muestra
+
+La cola lista títulos distintos de `subvenciones` que no tienen expediente ICAA asociado ni en la propia tabla ni en la tabla puente manual.
+
+Cada fila muestra:
+
+- título tal como aparece en las memorias de subvenciones;
+- primer y último año de ayuda;
+- importe acumulado;
+- número de filas de subvención agrupadas bajo ese título;
+- campo para introducir el expediente ICAA correcto.
+
+### Tabla puente
+
+La relación manual se guarda en:
+
+```sql
+CREATE TABLE subvenciones_icaa_matches (
+    titulo_subvencion TEXT PRIMARY KEY,
+    expediente_icaa   TEXT NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+La clave del lado de subvenciones es el título original, no un título normalizado. Así se conserva el literal de la fuente y se deja explícito qué variante histórica fue revisada.
+
+`expediente_icaa` **no tiene FK contra `icaa_fichas`**: `icaa_fichas` es un subset local de películas y las memorias históricas de subvenciones pueden referirse a expedientes oficiales que todavía no están importados en esa tabla.
+
+### Qué hace la acción de guardar
+
+La ruta:
+
+```text
+POST /admin/matching/subvenciones
+```
+
+hace un upsert directo en `subvenciones_icaa_matches`. El ID se considera un identificador oficial externo del catálogo ICAA, aunque todavía no haya una ficha local en `icaa_fichas`.
+
+La página `/subvenciones-historico` usa:
+
+```sql
+COALESCE(m.expediente_icaa, s.expediente_icaa)
+```
+
+para mostrar el enlace a la ficha ICAA. El mapping manual tiene prioridad sobre el valor presente en `subvenciones`, si lo hubiera.
+
+Si el expediente existe también en `icaa_fichas`, la tabla histórica enlaza a `/pelicula/<id>`. Si solo existe como ID oficial externo, enlaza al detalle del catálogo ICAA en la web del Ministerio.
+
+---
+
+## 3. Personas TMDB
 
 ### Qué muestra
 
@@ -182,10 +238,12 @@ El importador ya protege `revisado_manual` y `notas`, por lo que la revisión he
 | `execute()` | Helper de escritura con commit |
 | `ensure_matching_schema()` | Asegura `titulo_anual_esp` e índice |
 | `get_icaa_matching_pending()` | Construye la cola de títulos ICAA pendientes |
+| `get_subvenciones_matching_pending()` | Construye la cola de títulos de subvenciones sin ficha ICAA |
 | `get_tmdb_people_pending()` | Construye la cola de personas TMDB pendientes |
 | `require_matching_admin()` | Aplica el token opcional |
 | `admin_matching()` | Renderiza la página |
 | `admin_matching_icaa_save()` | Guarda mappings ICAA |
+| `admin_matching_subvenciones_save()` | Guarda mappings `subvenciones` -> `icaa_fichas` |
 | `admin_matching_persona_save()` | Guarda revisiones de personas TMDB |
 
 ---
@@ -194,7 +252,7 @@ El importador ya protege `revisado_manual` y `notas`, por lo que la revisión he
 
 El MVP resuelve revisión manual, pero todavía no incorpora:
 
-- tabla genérica de aliases;
+- tabla genérica de aliases para todos los orígenes;
 - historial de decisiones;
 - candidatos múltiples con score explicable;
 - pestaña de películas `top25/topespanol` frente a `tmdb`;

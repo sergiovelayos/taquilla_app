@@ -7,7 +7,7 @@
 
 ## Descripción general
 
-La página **Histórico Subvenciones** visualiza la evolución de las ayudas públicas del ICAA a la producción de largometrajes españoles desde 2003 hasta la actualidad, complementada con la serie histórica de espectadores y recaudación del cine español. Es una página estática en el sentido de que no accede a la base de datos PostgreSQL: toda la información procede de ficheros CSV editables ubicados en `webapp/data/`.
+La página **Histórico Subvenciones** visualiza la evolución de las ayudas públicas del ICAA a la producción de largometrajes españoles desde 2003 hasta la actualidad, complementada con la serie histórica de espectadores y recaudación del cine español. El gráfico principal sigue leyendo CSV editables desde `webapp/data/`, pero la tabla de detalle inferior se alimenta de PostgreSQL para poder enlazar cada título con su ficha ICAA cuando existe.
 
 ---
 
@@ -95,6 +95,17 @@ Serie anual de recaudación del cine español en salas, en millones de euros.
 La carga se hace **por posición de columna** (no por nombre), ya que el fichero puede tener un encabezado heredado incorrecto. Esto permite editarlo libremente sin preocuparse del nombre exacto de la cabecera.
 
 Fuente: [Estadística de Cinematografía — Recaudación por nacionalidad](https://estadisticas.cultura.gob.es/CulturaJaxiPx/Tabla.htm?path=/t20/p20/a2005/l0/&file=T2001009.px&L=0) (Ministerio de Cultura, tabla T2001009).
+
+### Tabla de detalle `subvenciones`
+
+La tabla interactiva de películas situada bajo el gráfico no usa el CSV en memoria, sino la tabla PostgreSQL `subvenciones`. Para mostrar enlaces a `/pelicula/<expediente_icaa>`, la consulta combina:
+
+- `subvenciones.expediente_icaa`, cuando ya existe;
+- `subvenciones_icaa_matches.expediente_icaa`, cuando el enlace se resolvió manualmente desde `/admin/matching`.
+
+La relación manual usa `subvenciones_icaa_matches.titulo_subvencion = subvenciones.titulo` y se documenta en `docs/matching_web.md`.
+
+Los IDs de la tabla puente pueden existir en el catálogo oficial del ICAA aunque todavía no estén importados en el subset local `icaa_fichas`. En ese caso la tabla muestra un enlace externo al catálogo ICAA; cuando sí hay ficha local, enlaza a `/pelicula/<id>`.
 
 ---
 

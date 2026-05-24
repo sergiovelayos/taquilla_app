@@ -1165,6 +1165,24 @@ def ensure_matching_schema():
         CREATE INDEX IF NOT EXISTS icaa_titulo_anual_esp_idx
         ON icaa_fichas (titulo_anual_esp);
     """)
+    execute("""
+        CREATE TABLE IF NOT EXISTS subvenciones_icaa_matches (
+            titulo_subvencion TEXT PRIMARY KEY,
+            expediente_icaa   TEXT NOT NULL,
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """)
+    # Los expedientes de subvenciones pueden existir en el catálogo ICAA aunque
+    # todavía no estén importados en el subset local de icaa_fichas.
+    execute("""
+        ALTER TABLE subvenciones_icaa_matches
+        DROP CONSTRAINT IF EXISTS subvenciones_icaa_matches_expediente_icaa_fkey;
+    """)
+    execute("""
+        CREATE INDEX IF NOT EXISTS subvenciones_icaa_matches_expediente_idx
+        ON subvenciones_icaa_matches (expediente_icaa);
+    """)
 
 
 def get_icaa_matching_pending(limit=25):
@@ -1214,6 +1232,25 @@ def get_tmdb_people_pending(limit=50):
     """, [limit])
 
 
+def get_subvenciones_matching_pending(limit=50):
+    """Titles in subvenciones that still have no ICAA ficha linked."""
+    return query("""
+        SELECT
+            s.titulo,
+            MIN(s.anio_ayuda) AS primer_anio,
+            MAX(s.anio_ayuda) AS ultimo_anio,
+            SUM(s.importe_ayuda) AS importe_total,
+            COUNT(*) AS filas
+        FROM subvenciones s
+        LEFT JOIN subvenciones_icaa_matches m
+          ON m.titulo_subvencion = s.titulo
+        WHERE COALESCE(m.expediente_icaa, s.expediente_icaa) IS NULL
+        GROUP BY s.titulo
+        ORDER BY importe_total DESC NULLS LAST, ultimo_anio DESC NULLS LAST, s.titulo
+        LIMIT %s
+    """, [limit])
+
+
 def require_matching_admin():
     """Require a shared token when MATCHING_ADMIN_TOKEN is configured."""
     expected = os.getenv('MATCHING_ADMIN_TOKEN')
@@ -1233,10 +1270,12 @@ def admin_matching():
 
     icaa_pending = get_icaa_matching_pending(25)
     people_pending = get_tmdb_people_pending(50)
+    subvenciones_pending = get_subvenciones_matching_pending(50)
 
     stats = {
         'icaa_pending': len(icaa_pending),
         'people_pending': len(people_pending),
+        'subvenciones_pending': len(subvenciones_pending),
     }
     return render_template(
         'admin_matching.html',
@@ -1247,6 +1286,7 @@ def admin_matching():
         stats=stats,
         icaa_pending=icaa_pending,
         people_pending=people_pending,
+        subvenciones_pending=subvenciones_pending,
     )
 
 
@@ -1318,6 +1358,27 @@ def admin_matching_persona_save():
         msg = f'Persona marcada como revisada: {nombre_icaa}.'
 
     return redirect(url_for('admin_matching', tab='personas', token=token, msg=msg))
+
+
+@app.route('/admin/matching/subvenciones', methods=['POST'])
+def admin_matching_subvenciones_save():
+    token = require_matching_admin()
+    ensure_matching_schema()
+    titulo = request.form.get('titulo', '').strip()
+    expediente_icaa = request.form.get('expediente_icaa', '').strip()
+
+    if not titulo or not expediente_icaa:
+        return redirect(url_for('admin_matching', tab='subvenciones', token=token, err='Falta el titulo de subvencion o el expediente ICAA.'))
+
+    execute("""
+        INSERT INTO subvenciones_icaa_matches (titulo_subvencion, expediente_icaa)
+        VALUES (%s, %s)
+        ON CONFLICT (titulo_subvencion) DO UPDATE
+        SET expediente_icaa = EXCLUDED.expediente_icaa,
+            updated_at = NOW();
+    """, [titulo, expediente_icaa])
+
+    return redirect(url_for('admin_matching', tab='subvenciones', token=token, msg=f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa}.'))
 
 
 # ---------------------------------------------------------------------------
@@ -1611,10 +1672,19 @@ def get_subvenciones_db_table():
     """All rows from the aggregated subvenciones table for the interactive detail table."""
     try:
         rows = query("""
-            SELECT titulo, importe_ayuda, presupuesto_proyecto, anio_ayuda,
-                   expediente_icaa, tmdb_id
-            FROM subvenciones
-            ORDER BY anio_ayuda DESC, titulo ASC
+            SELECT s.titulo,
+                   s.importe_ayuda,
+                   s.presupuesto_proyecto,
+                   s.anio_ayuda,
+                   COALESCE(m.expediente_icaa, s.expediente_icaa) AS expediente_icaa,
+                   f.expediente_icaa IS NOT NULL AS tiene_ficha_local,
+                   s.tmdb_id
+            FROM subvenciones s
+            LEFT JOIN subvenciones_icaa_matches m
+              ON m.titulo_subvencion = s.titulo
+            LEFT JOIN icaa_fichas f
+              ON f.expediente_icaa = COALESCE(m.expediente_icaa, s.expediente_icaa)
+            ORDER BY s.anio_ayuda DESC, s.titulo ASC
         """)
         return [
             {
@@ -1623,6 +1693,7 @@ def get_subvenciones_db_table():
                 'presupuesto_proyecto': float(r['presupuesto_proyecto']) if r['presupuesto_proyecto'] is not None else None,
                 'anio_ayuda':           r['anio_ayuda'],
                 'expediente_icaa':      r['expediente_icaa'],
+                'tiene_ficha_local':    r['tiene_ficha_local'],
                 'tmdb_id':              r['tmdb_id'],
             }
             for r in rows
@@ -1633,6 +1704,7 @@ def get_subvenciones_db_table():
 
 @app.route('/subvenciones-historico')
 def subvenciones_historico():
+    ensure_matching_schema()
     chart_data, stats, hitos = get_subvenciones_historico()
     db_stats         = get_subvenciones_db_stats()
     subvenciones_table = get_subvenciones_db_table()

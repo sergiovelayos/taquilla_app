@@ -20,8 +20,23 @@
         .navbar { background: var(--color-primary); box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
         .navbar-brand { font-weight: 800; font-size: 1.35rem; color: #fff !important; }
         .navbar-brand .bi-film { color: var(--color-accent); }
-        .nav-link { color: rgba(255,255,255,0.8) !important; font-weight: 500; }
-        .nav-link:hover, .nav-link.active { color: #fff !important; }
+        .navbar .nav-link { color: rgba(255,255,255,0.8) !important; font-weight: 500; }
+        .navbar .nav-link:hover, .navbar .nav-link.active { color: #fff !important; }
+        .nav-pills .nav-link {
+            color: var(--color-primary);
+            font-weight: 600;
+            border-radius: 8px;
+        }
+        .nav-pills .nav-link:hover {
+            color: var(--color-primary);
+            background: #e9ecef;
+        }
+        .nav-pills .nav-link.active {
+            color: #fff;
+            background: var(--color-accent);
+        }
+        .kpi-link { color: inherit; text-decoration: none; display: block; }
+        .kpi-link:hover .kpi { border-color: #cbd3da; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 
         .page-title { color: var(--color-primary); font-weight: 800; }
         .kpi {
@@ -118,28 +133,45 @@
 
     <div class="row g-3 mb-4">
         <div class="col-6 col-lg-3">
-            <div class="kpi">
-                <div class="kpi-value">{{ stats.icaa_pending }}</div>
-                <div class="kpi-label">Títulos ICAA</div>
-            </div>
+            <a class="kpi-link" href="{{ url_for('admin_matching', tab='icaa', token=token) }}">
+                <div class="kpi">
+                    <div class="kpi-value">{{ stats.icaa_pending }}</div>
+                    <div class="kpi-label">Títulos ICAA</div>
+                </div>
+            </a>
         </div>
         <div class="col-6 col-lg-3">
-            <div class="kpi">
-                <div class="kpi-value">{{ stats.people_pending }}</div>
-                <div class="kpi-label">Personas TMDB</div>
-            </div>
+            <a class="kpi-link" href="{{ url_for('admin_matching', tab='personas', token=token) }}">
+                <div class="kpi">
+                    <div class="kpi-value">{{ stats.people_pending }}</div>
+                    <div class="kpi-label">Personas TMDB</div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-3">
+            <a class="kpi-link" href="{{ url_for('admin_matching', tab='subvenciones', token=token) }}">
+                <div class="kpi">
+                    <div class="kpi-value">{{ stats.subvenciones_pending }}</div>
+                    <div class="kpi-label">Títulos subvenciones</div>
+                </div>
+            </a>
         </div>
     </div>
 
     <ul class="nav nav-pills mb-3">
         <li class="nav-item">
-            <a class="nav-link {% if tab != 'personas' %}active{% endif %}" href="{{ url_for('admin_matching', tab='icaa', token=token) }}">
+            <a class="nav-link {% if tab == 'icaa' %}active{% endif %}" href="{{ url_for('admin_matching', tab='icaa', token=token) }}">
                 <i class="bi bi-camera-reels me-1"></i>Películas ICAA
             </a>
         </li>
         <li class="nav-item">
             <a class="nav-link {% if tab == 'personas' %}active{% endif %}" href="{{ url_for('admin_matching', tab='personas', token=token) }}">
                 <i class="bi bi-person-vcard me-1"></i>Personas TMDB
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if tab == 'subvenciones' %}active{% endif %}" href="{{ url_for('admin_matching', tab='subvenciones', token=token) }}">
+                <i class="bi bi-bank me-1"></i>Subvenciones ICAA
             </a>
         </li>
     </ul>
@@ -216,6 +248,64 @@
         </div>
         {% else %}
         <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay personas pendientes en esta cola.</div>
+        {% endif %}
+    </section>
+    {% elif tab == 'subvenciones' %}
+    <section class="work-panel">
+        <div class="work-panel-header">
+            <div class="work-panel-title"><i class="bi bi-bank me-2"></i>Títulos de subvenciones sin ficha ICAA</div>
+            <span class="badge text-bg-light">{{ subvenciones_pending|length }} visibles</span>
+        </div>
+        {% if subvenciones_pending %}
+        <div class="table-wrap">
+            <table class="table matching-table">
+                <thead>
+                    <tr>
+                        <th>Título subvención</th>
+                        <th>Años</th>
+                        <th>Impacto</th>
+                        <th>Filas</th>
+                        <th>Expediente ICAA</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in subvenciones_pending %}
+                    <tr>
+                        <td>
+                            <div class="name-main">{{ row.titulo }}</div>
+                            <a class="icaa-link name-sub" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>Catálogo ICAA
+                            </a>
+                        </td>
+                        <td>
+                            {% if row.primer_anio == row.ultimo_anio %}
+                            {{ row.primer_anio }}
+                            {% else %}
+                            {{ row.primer_anio }}-{{ row.ultimo_anio }}
+                            {% endif %}
+                        </td>
+                        <td><span class="impact-badge"><i class="bi bi-cash-stack"></i>{{ row.importe_total|euros_short }}</span></td>
+                        <td><span class="impact-badge">{{ row.filas }}</span></td>
+                        <td>
+                            <form class="inline-form" action="{{ url_for('admin_matching_subvenciones_save') }}" method="post">
+                                <input type="hidden" name="token" value="{{ token }}">
+                                <input type="hidden" name="titulo" value="{{ row.titulo }}">
+                                <input class="form-control form-control-sm" type="number" name="expediente_icaa" placeholder="ID ICAA" min="1" required>
+                                <button class="btn btn-sm btn-success btn-icon" title="Guardar">
+                                    <i class="bi bi-check2"></i>
+                                </button>
+                                <a class="btn btn-sm btn-outline-secondary btn-icon" title="Buscar" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
+                                    <i class="bi bi-search"></i>
+                                </a>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay títulos de subvenciones pendientes en esta cola.</div>
         {% endif %}
     </section>
     {% else %}
