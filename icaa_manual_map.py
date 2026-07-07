@@ -30,7 +30,7 @@ USO
 
 .env
 ----
-  DATABASE_URL=postgresql://localhost/comscore
+  DATABASE_URL=postgresql://localhost/taquilla_app
 """
 
 import argparse
@@ -63,7 +63,7 @@ ICAA_URL = "https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Detalle?Pelicula={}"
 # ---------------------------------------------------------------------------
 
 def get_db():
-    dsn = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+    dsn = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
     return psycopg2.connect(dsn)
 
 

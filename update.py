@@ -71,6 +71,15 @@ from download_parse import (
     BASE_URL,
     TOP25_COLS, TOPESPANOL_COLS,
 )
+from tmdb_enricher import (
+    get_db as tmdb_get_db,
+    crear_tabla as tmdb_crear_tabla,
+    buscar_pelicula,
+    obtener_detalle_completo,
+    extraer_metadatos,
+    guardar_metadata,
+    TMDB_OVERRIDES,
+)
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -92,8 +101,13 @@ def ensure_schema(conn):
                 fecha_inicio  DATE,
                 fecha_fin     DATE,
                 rows_inserted INTEGER     NOT NULL DEFAULT 0,
-                processed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                processed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                pdf_url       TEXT
             )
+        """)
+        cur.execute("""
+            ALTER TABLE processed_pdfs
+            ADD COLUMN IF NOT EXISTS pdf_url TEXT
         """)
 
         # inserted_at audit column on top25
@@ -117,15 +131,16 @@ def already_processed(conn, filename: str) -> bool:
         return cur.fetchone() is not None
 
 
-def record_processed(conn, filename, report_type, fecha_inicio, fecha_fin, rows_inserted):
+def record_processed(conn, filename, report_type, fecha_inicio, fecha_fin, rows_inserted, pdf_url=None):
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO processed_pdfs (filename, report_type, fecha_inicio, fecha_fin, rows_inserted)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO processed_pdfs (filename, report_type, fecha_inicio, fecha_fin, rows_inserted, pdf_url)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (filename) DO UPDATE
                 SET rows_inserted = EXCLUDED.rows_inserted,
-                    processed_at  = NOW()
-        """, (filename, report_type, fecha_inicio, fecha_fin, rows_inserted))
+                    processed_at  = NOW(),
+                    pdf_url       = EXCLUDED.pdf_url
+        """, (filename, report_type, fecha_inicio, fecha_fin, rows_inserted, pdf_url))
 
 
 # ── insert helpers ────────────────────────────────────────────────────────────
@@ -288,7 +303,7 @@ def run(dry_run: bool = False):
             table = 'top25' if report_type == 'top25' else 'topespanol'
             n = insert_rows(conn, table, rows, inserted_at)
             record_processed(conn, stored_name, report_type,
-                             date_start, date_end, n)
+                             date_start, date_end, n, pdf_url=pdf_url)
             conn.commit()
             stats['new'] += 1
             stats['rows'] += n
@@ -305,7 +320,75 @@ def run(dry_run: bool = False):
         stats['new'], stats['rows'], stats['skipped'], stats['errors'],
     )
 
+    if not dry_run and stats['new'] > 0:
+        _enrich_new_titles()
+
     return stats['errors'] == 0
+
+
+def _enrich_new_titles():
+    """Busca en TMDB los títulos de top25/topespanol que aún no tienen entrada en tmdb."""
+    log.info('=== tmdb enrichment: buscando títulos sin match ===')
+    try:
+        conn = tmdb_get_db()
+        tmdb_crear_tabla(conn)
+    except Exception as exc:
+        log.error('TMDB enrichment: no se pudo conectar a DB: %s', exc)
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT t.titulo, t.distribuidora,
+                       array_agg(DISTINCT t.fuente) AS fuentes
+                FROM (
+                    SELECT titulo, distribuidora, 'top25'      AS fuente FROM top25
+                    UNION ALL
+                    SELECT titulo, distribuidora, 'topespanol' AS fuente FROM topespanol
+                ) t
+                LEFT JOIN tmdb m ON m.titulo = t.titulo
+                WHERE m.titulo IS NULL AND t.titulo IS NOT NULL
+                GROUP BY t.titulo, t.distribuidora
+                ORDER BY t.titulo
+            """)
+            pendientes = cur.fetchall()
+    except Exception as exc:
+        log.error('TMDB enrichment: error consultando pendientes: %s', exc)
+        conn.close()
+        return
+
+    log.info('TMDB enrichment: %d títulos sin match', len(pendientes))
+    ok = no_match = errors = 0
+
+    for titulo, distribuidora, fuentes in pendientes:
+        if (titulo, distribuidora) in TMDB_OVERRIDES:
+            override_id = TMDB_OVERRIDES[(titulo, distribuidora)]
+            if override_id is None:
+                log.debug('TMDB override=None: %s', titulo)
+                no_match += 1
+                continue
+            tmdb_id, score = override_id, 1.0
+        else:
+            tmdb_id, score, _ = buscar_pelicula(titulo)
+
+        if not tmdb_id:
+            log.debug('TMDB sin match: %s', titulo)
+            no_match += 1
+            continue
+
+        try:
+            detalle = obtener_detalle_completo(tmdb_id)
+            meta    = extraer_metadatos(detalle)
+            guardar_metadata(conn, titulo, distribuidora, meta, score, list(fuentes))
+            log.info('TMDB OK: %s → %s', titulo, meta.get('titulo_tmdb'))
+            ok += 1
+        except Exception as exc:
+            conn.rollback()
+            log.error('TMDB error guardando %s: %s', titulo, exc)
+            errors += 1
+
+    conn.close()
+    log.info('=== tmdb enrichment done: %d ok, %d sin match, %d errors ===', ok, no_match, errors)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

@@ -421,7 +421,6 @@ def build_bounds_top25(header_words, pw, ph):
         ('DISTRIBUIDORA',            a.get('DISTRIB', pw*0.40)),
         ('SEM.',                     a.get('SEM',     pw*0.505)),
         ('CINES',                    a.get('CINES',   pw*0.530)),
-        ('PANTALLAS',                a.get('PANTALLAS', pw*0.560)),
         ('RECAUDACIÓN',              rx[0] if rx else pw*0.620),
         ('+/-% REC',                 px[0] if px else pw*0.690),
         ('TOTAL ESPECTADORES',       ex[0] if ex else pw*0.720),
@@ -429,6 +428,8 @@ def build_bounds_top25(header_words, pw, ph):
         ('RECAUDACIÓN (ACUMULADO)',   rx[1] if len(rx)>=2 else pw*0.850),
         ('ESPECTADORES (ACUMULADO)', ex[1] if len(ex)>=2 else pw*0.900),
     ]
+    if 'PANTALLAS' in a:
+        cols.append(('PANTALLAS', a['PANTALLAS']))
     cols.sort(key=lambda c: c[1])
     return _build_bounds(cols, pw)
 

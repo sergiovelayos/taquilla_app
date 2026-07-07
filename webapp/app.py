@@ -93,7 +93,7 @@ def get_weekly_ranking(table, fecha_inicio, fecha_fin):
                m.tmdb_id
         FROM normalized_ranking r
         LEFT JOIN tmdb m ON (
-            regexp_replace(LOWER(r.titulo_limpio), '[^a-z0-9]', '', 'g') = 
+            regexp_replace(LOWER(r.titulo), '[^a-z0-9]', '', 'g') =
             regexp_replace(LOWER(m.titulo), '[^a-z0-9]', '', 'g')
         )
         ORDER BY r.rank ASC

@@ -18,6 +18,7 @@ JOIN con comscore:
 """
 
 import os
+import sys
 import time
 import logging
 import argparse
@@ -34,13 +35,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TMDB_TOKEN = os.getenv("TMDB_TOKEN")
-if not TMDB_TOKEN:
-    log.error("TMDB_TOKEN not found in environment. Please check your .env file.")
-    exit(1)
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG  = "https://image.tmdb.org/t/p/w500"
 
-DB_DSN = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+DB_DSN = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +53,8 @@ log = logging.getLogger(__name__)
 # Busca el ID en: https://www.themoviedb.org/search?query=TITULO
 TMDB_OVERRIDES = {
     ("REC", "Filmax"): None,  # TODO: añadir ID cuando se localice en TMDB
+    ("Familia Beneton + 2, La", "Beta Fiction"): 1391325,
+    ("Diablo viste de Prada 2, El", "Walt Disney"): 1314481,
 }
 
 # ─── TMDB client ────────────────────────────────────────────────────────────────
@@ -80,10 +80,31 @@ def tmdb_get(path, params=None):
 
 # ─── Normalización y matching ───────────────────────────────────────────────────
 
+_SUFIJOS_BUSQUEDA = re.compile(
+    r'\s*\(.*?\)'
+    r'|\s+\d+[ºth°]?\s*(?:aniversario|anniversary)\b'
+    r'|\s+\b4[kK]\b|\s+\b3[dD]\b|\s+\bHD\b'
+    r'|\s+sing-?a-?long\b|\s+film\s+fest\b|\s+encore\b'
+    r'|\s*[-:]\s*$',
+    re.IGNORECASE
+)
+
+def limpiar_titulo_busqueda(titulo):
+    """Elimina paréntesis y anotaciones técnicas/evento antes de buscar en TMDB."""
+    if not titulo:
+        return ""
+    t, prev = titulo, None
+    while t != prev:
+        prev = t
+        t = _SUFIJOS_BUSQUEDA.sub("", t).strip()
+    return t
+
+
 def normalizar(texto):
-    """Minúsculas, sin acentos, sin artículos iniciales, sin puntuación."""
+    """Minúsculas, sin acentos, sin artículos iniciales, sin puntuación ni anotaciones."""
     if not texto:
         return ""
+    texto = limpiar_titulo_busqueda(texto)
     texto = unicodedata.normalize("NFD", texto)
     texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
     texto = texto.lower().strip()
@@ -116,10 +137,19 @@ def buscar_pelicula(titulo, year=None, solo_espanol=False):
     - Ordena candidatos por popularidad para priorizar los más conocidos
     - Con solo_espanol=True verifica que la película sea de producción española
     """
-    queries = [titulo]
-    if ", " in titulo:
-        partes = titulo.split(", ", 1)
+    titulo_base = limpiar_titulo_busqueda(titulo)
+    queries = [titulo_base]
+    if ", " in titulo_base:
+        partes = titulo_base.split(", ", 1)
         queries.append(f"{partes[1]} {partes[0]}")
+    # Fallback sin caracteres especiales (ej: "Familia Beneton + 2" → "Familia Beneton 2")
+    titulo_limpio = re.sub(r"[^\w\s,]", " ", titulo_base).strip()
+    titulo_limpio = re.sub(r"\s+", " ", titulo_limpio)
+    if titulo_limpio != titulo_base and titulo_limpio not in queries:
+        queries.append(titulo_limpio)
+        if ", " in titulo_limpio:
+            partes = titulo_limpio.split(", ", 1)
+            queries.append(f"{partes[1]} {partes[0]}")
 
     best_score, best_id, best_candidato = 0, None, None
 
@@ -499,6 +529,9 @@ def procesar_lista(peliculas, dry_run=True, conn=None, skip_existing=False):
 # ─── Main ────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    if not TMDB_TOKEN:
+        log.error("TMDB_TOKEN not found in environment. Please check your .env file.")
+        sys.exit(1)
     parser = argparse.ArgumentParser(description="Enriquecedor TMDB para Taquilla España")
     parser.add_argument("--limit",          type=int, default=None,
                         help="Procesar solo las N primeras películas (útil para pruebas)")

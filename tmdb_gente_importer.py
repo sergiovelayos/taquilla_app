@@ -44,7 +44,7 @@ TMDB_BASE   = "https://api.themoviedb.org/3"
 TMDB_IMG_W  = "https://image.tmdb.org/t/p/w500"
 TMDB_IMG_OR = "https://image.tmdb.org/t/p/original"
 
-DB_DSN = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+DB_DSN = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
 
 logging.basicConfig(
     level=logging.INFO,

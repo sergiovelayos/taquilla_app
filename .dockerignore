@@ -1,0 +1,14 @@
+._*
+.DS_Store
+**/.DS_Store
+**/._*
+.claude
+__pycache__
+**/__pycache__
+*.pyc
+.git
+pdfs
+csv
+logs
+scraper_icaa/html_sources
+*.sql

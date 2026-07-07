@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 # ─── Config ────────────────────────────────────────────────────────────────────
 
 load_dotenv(Path(__file__).parent.parent / ".env")   # hereda el .env del proyecto raíz
-DB_DSN    = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+DB_DSN    = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
 INPUTS    = Path(__file__).parent / "inputs"
 
 logging.basicConfig(

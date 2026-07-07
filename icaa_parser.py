@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 # ─── Config ────────────────────────────────────────────────────────────────────
 
 load_dotenv()
-DB_DSN      = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+DB_DSN      = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
 HTML_DIR    = Path(__file__).parent / "scraper_icaa" / "html_sources"
 
 logging.basicConfig(

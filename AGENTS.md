@@ -1,24 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Infraestructura — CRÍTICO
-
-El proyecto corre en un **servidor Ubuntu remoto**, NO en el macmini local.
-- El macmini tiene el directorio del proyecto montado como volumen (edición de código)
-- Todos los comandos bash que afecten a la app, Docker, o la DB deben ejecutarse via **`ssh ubuntu`**
-- `docker exec`, `docker-compose`, `psql` y scripts Python del pipeline → siempre `ssh ubuntu "<comando>"`
-- `DATABASE_URL` usa `localhost` porque dentro del contenedor en Linux con `network_mode: host` el localhost SÍ llega a la DB
-- La DB es un contenedor Docker llamado `postgres_db` en el servidor Ubuntu
-- **Nunca ejecutar comandos de infraestructura directamente en el macmini** — tiene su propio PostgreSQL (Homebrew) y Docker que son irrelevantes para la app
-
-```bash
-# Ejemplo correcto
-ssh ubuntu "docker exec taquilla-webapp python3 update.py"
-
-# Ejemplo incorrecto — afecta solo al macmini, no a producción
-docker exec taquilla-webapp python3 update.py
-```
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Commands
 

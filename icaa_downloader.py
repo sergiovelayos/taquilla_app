@@ -24,7 +24,7 @@ USO
 
 .env
 ----
-  DATABASE_URL=postgresql://localhost/comscore
+  DATABASE_URL=postgresql://localhost/taquilla_app
 """
 
 import argparse
@@ -145,7 +145,7 @@ def main():
 
     HTML_DIR.mkdir(parents=True, exist_ok=True)
 
-    dsn  = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+    dsn  = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
     conn = psycopg2.connect(dsn)
 
     ids = fetch_stubs(conn, only_stubs=not args.all, limit=args.limit)

@@ -38,7 +38,7 @@ USO
 .env
 ----
   BRAVE_API_KEY=tu_clave
-  DATABASE_URL=postgresql://localhost/comscore
+  DATABASE_URL=postgresql://localhost/taquilla_app
 """
 
 import argparse
@@ -512,7 +512,7 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
         log.debug("Modo debug activo — se mostrara la respuesta raw de cada query.")
 
-    dsn  = os.getenv("DATABASE_URL", "postgresql://localhost/comscore")
+    dsn  = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
     conn = get_db(dsn)
 
     # -- Cargar mapa de icaa_fichas (gratis, 0 queries) ----------------------
