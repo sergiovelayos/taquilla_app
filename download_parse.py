@@ -459,7 +459,6 @@ def build_bounds_topespanol(header_words, pw, ph):
     distrib_x = a.get('DISTRIB', pw * 0.35)   # header x0 (centered over col)
     sem_x   = a.get('SEM',       pw * 0.49)
     cines_x = a.get('CINES',     pw * 0.51)
-    pant_x  = a.get('PANTALLAS', pw * 0.54)
 
     # TITULO starts just after rank; DISTRIB boundary uses geometric formula
     # (topespanol headers are centered, not left-aligned to data)
@@ -485,11 +484,17 @@ def build_bounds_topespanol(header_words, pw, ph):
     esp_mc = pct2 + (rec2 - pct2) / 3
     esp_mp = pct2 + (rec2 - pct2) * 2 / 3
 
-    # Numeric columns: anchored bounds, starting at sem_x
-    num_anchors = sorted([
+    # Numeric columns: anchored bounds, starting at sem_x.
+    # PANTALLAS: since the report dropped this column (last seen week of
+    # 2026-05-29), most PDFs no longer have a header label for it. Only
+    # include it in the layout when actually detected — a page-width
+    # fallback here would fabricate a slice of ~nothing between CINES and
+    # RECAUDACIÓN and risks landing on the wrong side of RECAUDACIÓN
+    # depending on page width (see PANTALLAS-overflow incident). When
+    # absent, parse_pdf() below fills PANTALLAS in from CINES instead.
+    num_anchors = [
         ('SEM.',                          sem_x),
         ('CINES',                         cines_x),
-        ('PANTALLAS',                     pant_x),
         ('RECAUDACIÓN',                   rec1),
         ('+/-% REC',                      pct1),
         ('RECAUDACIÓN (MEDIA/CINE)',       rec_mc),
@@ -500,7 +505,10 @@ def build_bounds_topespanol(header_words, pw, ph):
         ('ESPECTADORES (MEDIA/PANTALLA)', esp_mp),
         ('RECAUDACIÓN (ACUMULADO)',        rec2),
         ('ESPECTADORES (ACUMULADO)',       esp2),
-    ], key=lambda c: c[1])
+    ]
+    if 'PANTALLAS' in a:
+        num_anchors.append(('PANTALLAS', a['PANTALLAS']))
+    num_anchors.sort(key=lambda c: c[1])
 
     num_bounds = _anchored_bounds(num_anchors, first_lo=sem_x, page_width=pw)
 
@@ -554,6 +562,14 @@ def parse_pdf(pdf_path, report_type, date_start, date_end):
             for name, _, _ in col_bounds:
                 raw = col_map.get(name, '')
                 row[name] = clean_number(raw) if name in NUMERIC_COLS else raw.strip()
+
+            # PANTALLAS was dropped from the source report after the week of
+            # 2026-05-29; when the PDF has no such column, CINES is the
+            # closest available figure (historically the two were equal or
+            # off by at most 1).
+            if not row.get('PANTALLAS'):
+                row['PANTALLAS'] = row.get('CINES', '')
+
             results.append(row)
 
     return results

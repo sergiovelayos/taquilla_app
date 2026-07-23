@@ -46,6 +46,7 @@ Pipeline integral de ingesta, enriquecimiento y visualización de datos de taqui
 | `tmdb_enricher.py` | Enriquecimiento con pósters y sinopsis vía API TMDB. |
 | `run_update.sh` | Script maestro para ejecución semanal completa. |
 | `reconstruct_csv.py` | Genera backups consolidados en formato CSV. |
+| `scrape_icaa.py` | Barrido por rango de IDs del catálogo ICAA → tabla `scrape_icaa`. |
 
 ---
 
@@ -57,6 +58,38 @@ Base de datos: `comscore`
 - **`icaa_fichas`**: Repositorio maestro de metadatos oficiales y subvenciones.
 - **`anual_esp`**: Agregados anuales de rendimiento por película.
 - **`processed_pdfs`**: Auditoría de ingesta.
+- **`scrape_icaa`**: Fichas descubiertas por barrido de IDs (misma estructura que `icaa_fichas`).
+- **`scrape_icaa_progress`**: Registro de IDs ya probados en el barrido (permite reanudar).
+
+---
+
+## 🔍 Barrido del Catálogo ICAA (`scrape_icaa.py`)
+
+Descubre fichas que no están en `icaa_fichas` recorriendo IDs numéricos de
+`sede.mcu.gob.es/CatalogoICAA`. Usa cabeceras de navegador real, delay aleatorio
+(3–6 s), backoff en errores, pausa larga ante 403/429 y renovación periódica de
+sesión para evitar bloqueos. Reutiliza `icaa_parser.parsear_html`, por lo que
+`scrape_icaa` tiene exactamente los mismos campos que `icaa_fichas`.
+
+Notas de comportamiento:
+- El ICAA devuelve **500** (no 404) para IDs inexistentes → se marcan como `empty`.
+- Excluye automáticamente los IDs ya presentes en `icaa_fichas` y los ya
+  registrados en `scrape_icaa_progress` (`ok`/`empty`); los `error` se reintentan.
+- Commit por ficha: se puede cortar y relanzar sin perder nada.
+- Ritmo ≈ 4–5 s por ID (~18.000 IDs/día).
+
+```bash
+# Prueba
+docker exec taquilla-webapp python3 scrape_icaa.py --start 135400 --end 135410 --dry-run
+
+# Barrido largo dentro de tmux (sobrevive al cierre de la terminal)
+tmux new -s scraper
+docker exec taquilla-webapp python3 scrape_icaa.py --start 1 --end 200000 2>&1 | tee -a ~/scrape_icaa.log
+# Salir sin parar: Ctrl+b, d — volver: tmux attach -t scraper
+```
+
+Si el contenedor se reconstruyó sin el script: `docker cp ~/taquilla_app/scrape_icaa.py taquilla-webapp:/app/`
+(y `icaa_parser.py` si tampoco está en la imagen).
 
 ---
 
