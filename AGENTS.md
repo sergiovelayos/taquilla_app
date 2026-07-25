@@ -63,7 +63,6 @@ Title matching challenge: titles differ across Comscore, ICAA, and TMDB (e.g. "T
 | `tmdb` | Visual enrichment: posters, trailers, ratings, cast arrays |
 | `tmdb_gente` | People enrichment: directors/actors with TMDB/IMDb/Wikidata IDs |
 | `subvenciones` | Film subsidies linked to ICAA expediente + TMDB id |
-| `subvenciones_raw` | Raw imported subsidy data before matching |
 | `subvenciones_icaa_matches` | Manual/auto matches between subvenciones and icaa_fichas |
 | `processed_pdfs` | Audit log — prevents double-processing PDFs |
 

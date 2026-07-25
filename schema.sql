@@ -194,46 +194,6 @@ ALTER SEQUENCE public.subvenciones_id_seq OWNED BY public.subvenciones.id;
 
 
 --
--- Name: subvenciones_raw; Type: TABLE; Schema: public; Owner: macmini
---
-
-CREATE TABLE public.subvenciones_raw (
-    id integer NOT NULL,
-    titulo text,
-    importe_ayuda numeric(15,2),
-    presupuesto_proyecto numeric(15,2),
-    tipo_ayuda text,
-    anio_ayuda integer,
-    fuente text,
-    imported_at timestamp without time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.subvenciones_raw OWNER TO macmini;
-
---
--- Name: subvenciones_raw_id_seq; Type: SEQUENCE; Schema: public; Owner: macmini
---
-
-CREATE SEQUENCE public.subvenciones_raw_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.subvenciones_raw_id_seq OWNER TO macmini;
-
---
--- Name: subvenciones_raw_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: macmini
---
-
-ALTER SEQUENCE public.subvenciones_raw_id_seq OWNED BY public.subvenciones_raw.id;
-
-
---
 -- Name: tmdb; Type: TABLE; Schema: public; Owner: macmini
 --
 
@@ -388,13 +348,6 @@ ALTER TABLE ONLY public.subvenciones ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
--- Name: subvenciones_raw id; Type: DEFAULT; Schema: public; Owner: macmini
---
-
-ALTER TABLE ONLY public.subvenciones_raw ALTER COLUMN id SET DEFAULT nextval('public.subvenciones_raw_id_seq'::regclass);
-
-
---
 -- Name: anual_esp anual_esp_anio_rank_key; Type: CONSTRAINT; Schema: public; Owner: macmini
 --
 
@@ -448,14 +401,6 @@ ALTER TABLE ONLY public.subvenciones_icaa_matches
 
 ALTER TABLE ONLY public.subvenciones
     ADD CONSTRAINT subvenciones_pkey PRIMARY KEY (id);
-
-
---
--- Name: subvenciones_raw subvenciones_raw_pkey; Type: CONSTRAINT; Schema: public; Owner: macmini
---
-
-ALTER TABLE ONLY public.subvenciones_raw
-    ADD CONSTRAINT subvenciones_raw_pkey PRIMARY KEY (id);
 
 
 --

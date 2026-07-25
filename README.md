@@ -65,31 +65,57 @@ Base de datos: `comscore`
 
 ## 🔍 Barrido del Catálogo ICAA (`scrape_icaa.py`)
 
-Descubre fichas que no están en `icaa_fichas` recorriendo IDs numéricos de
-`sede.mcu.gob.es/CatalogoICAA`. Usa cabeceras de navegador real, delay aleatorio
-(3–6 s), backoff en errores, pausa larga ante 403/429 y renovación periódica de
-sesión para evitar bloqueos. Reutiliza `icaa_parser.parsear_html`, por lo que
-`scrape_icaa` tiene exactamente los mismos campos que `icaa_fichas`.
+Descubre fichas que **no** están en `icaa_fichas` haciendo un barrido secuencial
+de IDs numéricos de película en `sede.mcu.gob.es/CatalogoICAA`. Reutiliza
+`icaa_parser.parsear_html`, por lo que `scrape_icaa` tiene exactamente los mismos
+campos que `icaa_fichas` (título, director, ficha artística/técnica, subvenciones,
+premios, festivales, etc.).
 
-Notas de comportamiento:
-- El ICAA devuelve **500** (no 404) para IDs inexistentes → se marcan como `empty`.
+### Anti-bloqueo (diseñado para tandas de días sin que corten la conexión)
+- Sesión `requests` con **cabeceras de navegador real** + warm-up de cookies
+  visitando la portada del catálogo antes de empezar.
+- Delay aleatorio entre peticiones (`--delay` / `--delay-max`, por defecto 3–6 s).
+- Backoff exponencial ante errores de red; **pausa larga de 15 min + sesión nueva**
+  si aparece un 403/429 (posible bloqueo).
+- Renovación de sesión cada 200 peticiones.
+
+### Comportamiento
+- El ICAA devuelve **HTTP 500** (no 404) para IDs inexistentes → un reintento muy
+  corto y se marcan como `empty`. Este manejo rápido es clave: en la cola dispersa
+  (>230k) ~97% de los IDs son 500.
 - Excluye automáticamente los IDs ya presentes en `icaa_fichas` y los ya
   registrados en `scrape_icaa_progress` (`ok`/`empty`); los `error` se reintentan.
-- Commit por ficha: se puede cortar y relanzar sin perder nada.
-- Ritmo ≈ 4–5 s por ID (~18.000 IDs/día).
+- **Reanudable**: commit por ficha y registro de cada ID en `scrape_icaa_progress`,
+  así que se puede cortar y relanzar el mismo rango sin repetir trabajo.
+- Los HTMLs válidos se cachean en `scraper_icaa/html_scrape/`.
+
+### Distribución real del catálogo (barrido jul-2026)
+La densidad de fichas cae al subir el ID: ~15% de aciertos por debajo de 230k
+(zona densa, ~35k fichas) y solo ~3% entre 700k y 999k. No hay un corte limpio:
+es una cola larga y fina que llega hasta ~999k. El min/max de `icaa_fichas`
+calculado como TEXT es engañoso (orden alfabético); usar siempre `::int` para
+razonar sobre rangos.
+
+### Uso
 
 ```bash
-# Prueba
+# Prueba (dry-run, no escribe en BBDD)
 docker exec taquilla-webapp python3 scrape_icaa.py --start 135400 --end 135410 --dry-run
 
 # Barrido largo dentro de tmux (sobrevive al cierre de la terminal)
 tmux new -s scraper
-docker exec taquilla-webapp python3 scrape_icaa.py --start 1 --end 200000 2>&1 | tee -a ~/scrape_icaa.log
+docker exec taquilla-webapp python3 scrape_icaa.py --start 1 --end 999430 --delay 2 --delay-max 4 2>&1 | tee -a ~/scrape_icaa.log
 # Salir sin parar: Ctrl+b, d — volver: tmux attach -t scraper
+
+# Argumentos: --start / --end (rango, obligatorios), --delay / --delay-max,
+#             --limit N, --dry-run, --no-save-html
 ```
 
-Si el contenedor se reconstruyó sin el script: `docker cp ~/taquilla_app/scrape_icaa.py taquilla-webapp:/app/`
-(y `icaa_parser.py` si tampoco está en la imagen).
+> El contenedor usa `COPY` (no monta el volumen), así que tras cada
+> `docker-compose up -d --build` hay que recopiar el script si no se ha
+> reconstruido la imagen:
+> `docker cp ~/taquilla_app/scrape_icaa.py taquilla-webapp:/app/`
+> (y `icaa_parser.py` si tampoco está en la imagen).
 
 ---
 

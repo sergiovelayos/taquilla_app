@@ -81,16 +81,21 @@ Title matching challenge: titles differ across Comscore, ICAA, and TMDB (e.g. "T
 | `tmdb` | Visual enrichment: posters, trailers, ratings, cast arrays |
 | `tmdb_gente` | People enrichment: directors/actors with TMDB/IMDb/Wikidata IDs |
 | `subvenciones` | Film subsidies linked to ICAA expediente + TMDB id |
-| `subvenciones_raw` | Raw imported subsidy data before matching |
-| `subvenciones_icaa_matches` | Manual/auto matches between subvenciones and icaa_fichas |
+| `subvenciones_raw` | Raw import of the year/type/title/amount subsidy series (2006–2025), sourced from ICAA annual reports (2006–2017) and official Ministerio de Cultura resolutions (2018–present) — see `docs/subvenciones_historico.md` |
+| `subvenciones_icaa_matches` | Manual/auto matches between subvenciones (by title) and icaa_fichas |
+| `subvenciones_raw_icaa_matches` | Manual matches between subvenciones_raw (by row id, not title) and icaa_fichas — see `docs/matching_web.md` |
+| `pelicula_tmdb_match` | Manual/auto matches between icaa_fichas.expediente_icaa and a TMDB movie id — see `docs/matching_web.md` |
 | `processed_pdfs` | Audit log — prevents double-processing PDFs |
+| `scrape_icaa` | Fichas discovered by ID sweep of the ICAA catalogue (same schema as `icaa_fichas`) |
+| `scrape_icaa_progress` | Per-ID log of the sweep (`ok`/`empty`/`error`) — enables resuming |
 
 ### Web app (`webapp/app.py`)
 
 Single-file Flask app (~1700 lines). No ORM — raw psycopg2 with `RealDictCursor`. Every request opens and closes its own DB connection via `get_db()` / `query()` / `execute()` helpers.
 
 Routes:
-- `/` — weekly ranking dashboard with concentration analysis and capacity insights
+- `/` — weekly ranking dashboard (Taquilla Semanal): concentration analysis, capacity insights, top openings, per-film search + evolution chart — see `docs/pagina_principal.md`
+- `/historico-taquilla` — Histórico Taquilla: cumulative rankings, official annual ICAA report, percentile distribution — see `docs/pagina_principal.md`
 - `/pelicula/<expediente_icaa>` — film detail page (ICAA + TMDB data)
 - `/calculadora` — box office calculator / benchmarking tool with percentile analysis
 - `/subvenciones-historico` — historical subsidies browser

@@ -3,10 +3,14 @@ Taquilla España — Web App
 Flask application to visualize Spanish box office data from PostgreSQL.
 """
 
+import json
 import os
+import sys
+import tempfile
 import csv as csv_module
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 
@@ -17,6 +21,14 @@ import psycopg2.extras
 
 # Load .env from parent directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+# scrape_icaa.py / icaa_parser.py viven en la raíz del repo, un nivel por
+# encima de webapp/ — hace falta añadirlo a sys.path explícitamente porque
+# `python webapp/app.py` no lo incluye automáticamente.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import scrape_icaa
+import icaa_parser
+import tmdb_enricher
 
 app = Flask(__name__)
 
@@ -134,6 +146,18 @@ def get_top_historico(table='top25', limit=10):
             ORDER BY recaudacion_total DESC NULLS LAST
             LIMIT %s
         """, (limit,))
+
+
+def get_top_estrenos(table='top25', limit=10):
+    """Return the biggest opening weekends (semana=1) by spectators."""
+    return query(f"""
+        SELECT titulo, distribuidora, fecha_inicio, fecha_fin,
+               recaudacion, total_espectadores, cines, pantallas
+        FROM {table}
+        WHERE semana = 1
+        ORDER BY total_espectadores DESC NULLS LAST
+        LIMIT %s
+    """, [limit])
 
 
 def get_top_year(table='top25', year=None, limit=10):
@@ -628,6 +652,20 @@ app.jinja_env.filters['datetime'] = fmt_datetime
 # Calculator / Statistics
 # ---------------------------------------------------------------------------
 
+# Normaliza nombres de persona para poder agrupar variantes de la misma
+# persona en icaa_fichas.director / ficha_artistica (ej. "Almodóvar, Pedro.",
+# "Almodóvar, Pedro" y "Pedro Almodóvar" deben contar como la misma persona):
+# quita el punto final, pasa a minúsculas sin acentos y, si viene en formato
+# "Apellido, Nombre", lo reordena a "Nombre Apellido" para que coincida con
+# la variante sin coma.
+NAME_NORM_SQL = """
+regexp_replace(
+    unaccent(LOWER(TRIM(TRAILING '.' FROM TRIM({field})))),
+    '^([^,]+),\\s*(.+)$', '\\2 \\1'
+)
+"""
+
+
 def get_benchmarks():
     """Calcula los mejores y peores ratios de eficiencia por categoría.
     Métricas:
@@ -642,72 +680,34 @@ def get_benchmarks():
           AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
     """)[0]['ratio'] or 0
 
-    # Directores (min 2 pelis) + foto TMDB
-    top_directores = query("""
-        SELECT f.director AS nombre,
-               (SUM(f.espectadores)::float / NULLIF(SUM(f.subvenciones_total_eur), 0)) * 1000 AS ratio,
-               SUM(f.recaudacion_eur) / NULLIF(SUM(f.subvenciones_total_eur), 0)              AS ratio_rec,
-               COUNT(*) AS num_pelis,
-               g.foto_url,
-               g.popularidad,
-               EXTRACT(YEAR FROM g.fecha_nacimiento)::int AS anio_nacimiento,
-               g.lugar_nacimiento
+    # Directores (min 2 pelis) + foto TMDB — agrupados por nombre normalizado
+    # (unifica "Almodóvar, Pedro.", "Almodóvar, Pedro" y "Pedro Almodóvar"),
+    # ordenados por espectadores totales (no por ratio de eficiencia).
+    director_norm = NAME_NORM_SQL.format(field='f.director')
+    top_directores = query(f"""
+        SELECT
+            COALESCE(MAX(f.director) FILTER (WHERE f.director !~ ','), MIN(f.director)) AS nombre,
+            SUM(f.espectadores) AS espectadores_totales,
+            (SUM(f.espectadores)::float / NULLIF(SUM(f.subvenciones_total_eur), 0)) * 1000 AS ratio,
+            SUM(f.recaudacion_eur) / NULLIF(SUM(f.subvenciones_total_eur), 0)              AS ratio_rec,
+            COUNT(*) AS num_pelis,
+            (array_agg(g.foto_url ORDER BY g.popularidad DESC NULLS LAST) FILTER (WHERE g.foto_url IS NOT NULL))[1] AS foto_url,
+            MAX(g.popularidad) AS popularidad,
+            MAX(EXTRACT(YEAR FROM g.fecha_nacimiento))::int AS anio_nacimiento,
+            MAX(g.lugar_nacimiento) AS lugar_nacimiento
         FROM icaa_fichas f
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
         WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
           AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
-        GROUP BY f.director, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
+        GROUP BY {director_norm}
         HAVING COUNT(*) >= 2
-        ORDER BY ratio DESC LIMIT 20
+        ORDER BY espectadores_totales DESC LIMIT 20
     """)
 
-    # Bottom Directores (min 2 pelis) + foto TMDB
-    bottom_directores = query("""
-        SELECT f.director AS nombre,
-               (SUM(f.espectadores)::float / NULLIF(SUM(f.subvenciones_total_eur), 0)) * 1000 AS ratio,
-               SUM(f.recaudacion_eur) / NULLIF(SUM(f.subvenciones_total_eur), 0)              AS ratio_rec,
-               COUNT(*) AS num_pelis,
-               g.foto_url,
-               g.popularidad,
-               EXTRACT(YEAR FROM g.fecha_nacimiento)::int AS anio_nacimiento,
-               g.lugar_nacimiento
-        FROM icaa_fichas f
-        LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
-        WHERE f.subvenciones_total_eur > 0 AND f.espectadores IS NOT NULL
-          AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
-        GROUP BY f.director, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
-        HAVING COUNT(*) >= 2 AND SUM(f.espectadores) >= 0
-        ORDER BY ratio ASC LIMIT 20
-    """)
-
-    # Géneros (min 5 pelis)
-    top_generos = query("""
-        SELECT genero AS nombre,
-               (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio,
-               SUM(recaudacion_eur) / NULLIF(SUM(subvenciones_total_eur), 0)               AS ratio_rec,
-               COUNT(*) AS num_pelis
-        FROM icaa_fichas
-        WHERE subvenciones_total_eur > 0 AND espectadores > 0 AND genero IS NOT NULL
-          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
-        GROUP BY genero HAVING COUNT(*) >= 5
-        ORDER BY ratio DESC LIMIT 20
-    """)
-
-    # Bottom Géneros (min 5 pelis)
-    bottom_generos = query("""
-        SELECT genero AS nombre,
-               (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio,
-               SUM(recaudacion_eur) / NULLIF(SUM(subvenciones_total_eur), 0)               AS ratio_rec,
-               COUNT(*) AS num_pelis
-        FROM icaa_fichas
-        WHERE subvenciones_total_eur > 0 AND espectadores IS NOT NULL AND genero IS NOT NULL
-          AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
-        GROUP BY genero HAVING COUNT(*) >= 5 AND SUM(espectadores) >= 0
-        ORDER BY ratio ASC LIMIT 20
-    """)
-
-    # Actores (min 2 pelis) + foto TMDB
-    top_actores = query("""
+    # Actores (min 2 pelis) + foto TMDB — mismo criterio de normalización que
+    # directores, ordenados por espectadores totales.
+    actor_norm = NAME_NORM_SQL.format(field='a.nombre')
+    top_actores = query(f"""
         WITH actor_stats AS (
             SELECT actor->>'nombre' AS nombre,
                    f.espectadores, f.subvenciones_total_eur, f.recaudacion_eur
@@ -719,47 +719,21 @@ def get_benchmarks():
                 OR actor->>'funcion' ILIKE '%%Actor%%'
                 OR actor->>'funcion' ILIKE '%%Actriz%%')
         )
-        SELECT a.nombre,
-               (SUM(a.espectadores)::float / NULLIF(SUM(a.subvenciones_total_eur), 0)) * 1000 AS ratio,
-               SUM(a.recaudacion_eur) / NULLIF(SUM(a.subvenciones_total_eur), 0)               AS ratio_rec,
-               COUNT(*) AS num_pelis,
-               g.foto_url,
-               g.popularidad,
-               EXTRACT(YEAR FROM g.fecha_nacimiento)::int AS anio_nacimiento,
-               g.lugar_nacimiento
+        SELECT
+            COALESCE(MAX(a.nombre) FILTER (WHERE a.nombre !~ ','), MIN(a.nombre)) AS nombre,
+            SUM(a.espectadores) AS espectadores_totales,
+            (SUM(a.espectadores)::float / NULLIF(SUM(a.subvenciones_total_eur), 0)) * 1000 AS ratio,
+            SUM(a.recaudacion_eur) / NULLIF(SUM(a.subvenciones_total_eur), 0)               AS ratio_rec,
+            COUNT(*) AS num_pelis,
+            (array_agg(g.foto_url ORDER BY g.popularidad DESC NULLS LAST) FILTER (WHERE g.foto_url IS NOT NULL))[1] AS foto_url,
+            MAX(g.popularidad) AS popularidad,
+            MAX(EXTRACT(YEAR FROM g.fecha_nacimiento))::int AS anio_nacimiento,
+            MAX(g.lugar_nacimiento) AS lugar_nacimiento
         FROM actor_stats a
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = a.nombre
-        GROUP BY a.nombre, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
+        GROUP BY {actor_norm}
         HAVING COUNT(*) >= 2
-        ORDER BY ratio DESC LIMIT 20
-    """)
-
-    # Bottom Actores (min 2 pelis) + foto TMDB
-    bottom_actores = query("""
-        WITH actor_stats AS (
-            SELECT actor->>'nombre' AS nombre,
-                   f.espectadores, f.subvenciones_total_eur, f.recaudacion_eur
-            FROM icaa_fichas f,
-                 jsonb_array_elements(f.ficha_artistica) AS actor
-            WHERE f.subvenciones_total_eur > 0 AND f.espectadores IS NOT NULL
-              AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
-              AND (actor->>'funcion' ILIKE '%%Intérpretes%%'
-                OR actor->>'funcion' ILIKE '%%Actor%%'
-                OR actor->>'funcion' ILIKE '%%Actriz%%')
-        )
-        SELECT a.nombre,
-               (SUM(a.espectadores)::float / NULLIF(SUM(a.subvenciones_total_eur), 0)) * 1000 AS ratio,
-               SUM(a.recaudacion_eur) / NULLIF(SUM(a.subvenciones_total_eur), 0)               AS ratio_rec,
-               COUNT(*) AS num_pelis,
-               g.foto_url,
-               g.popularidad,
-               EXTRACT(YEAR FROM g.fecha_nacimiento)::int AS anio_nacimiento,
-               g.lugar_nacimiento
-        FROM actor_stats a
-        LEFT JOIN tmdb_gente g ON g.nombre_icaa = a.nombre
-        GROUP BY a.nombre, g.foto_url, g.popularidad, g.fecha_nacimiento, g.lugar_nacimiento
-        HAVING COUNT(*) >= 2 AND SUM(a.espectadores) >= 0
-        ORDER BY ratio ASC LIMIT 20
+        ORDER BY espectadores_totales DESC LIMIT 20
     """)
 
     # Top 50 Películas: mayor alcance de público por subvención
@@ -795,11 +769,7 @@ def get_benchmarks():
     return {
         'global_avg': global_avg,
         'directores': top_directores,
-        'generos': top_generos,
         'actores': top_actores,
-        'bottom_directores': bottom_directores,
-        'bottom_generos': bottom_generos,
-        'bottom_actores': bottom_actores,
         'top_peliculas': top_peliculas,
         'bottom_peliculas': bottom_peliculas
     }
@@ -830,27 +800,26 @@ def calculadora():
         if tipo == 'director':
             col_norm = base_norm.format("director")
             val_norm = base_norm.format("%s")
-            sql = f"SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+            sql = f"SELECT * FROM icaa_fichas WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
         elif tipo == 'actor':
             col_norm = base_norm.format("x->>'nombre'")
             val_norm = base_norm.format("%s")
             sql = f"""
-                SELECT * FROM icaa_fichas 
-                WHERE subvenciones_total_eur IS NOT NULL 
-                  AND EXISTS (
-                    SELECT 1 FROM jsonb_array_elements(ficha_artistica) AS x 
+                SELECT * FROM icaa_fichas
+                WHERE EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(ficha_artistica) AS x
                     WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%'
-                  ) 
+                  )
                 ORDER BY fecha_estreno DESC
             """
         elif tipo == 'genero':
             col_norm = base_norm.format("genero")
             val_norm = base_norm.format("%s")
-            sql = f"SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+            sql = f"SELECT * FROM icaa_fichas WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
         elif tipo == 'pelicula':
             col_norm = base_norm.format("titulo")
             val_norm = base_norm.format("%s")
-            sql = f"SELECT * FROM icaa_fichas WHERE subvenciones_total_eur IS NOT NULL AND {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+            sql = f"SELECT * FROM icaa_fichas WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
 
         if sql:
             results = query(sql, params)
@@ -957,6 +926,70 @@ def api_anual_percentiles():
         serialised.append(item)
 
     return jsonify(serialised)
+
+
+@app.route('/api/pelicula_semanal/buscar')
+def api_pelicula_semanal_buscar():
+    """Búsqueda de películas en top25/topespanol (taquilla semanal), no en anual_esp.
+    Devuelve un resumen por película (título+distribuidora) con su recorrido en cartelera."""
+    tab = request.args.get('tab', 'top25')
+    table = 'top25' if tab == 'top25' else 'topespanol'
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+
+    rows = query(f"""
+        SELECT titulo, distribuidora,
+               MIN(fecha_inicio) AS fecha_estreno,
+               MAX(semana) AS semanas_en_cartelera,
+               MAX(recaudacion_acum) AS recaudacion_total,
+               MAX(espectadores_acum) AS espectadores_total,
+               MIN(rank) AS mejor_rank
+        FROM {table}
+        WHERE titulo ILIKE %s OR distribuidora ILIKE %s
+        GROUP BY titulo, distribuidora
+        ORDER BY recaudacion_total DESC NULLS LAST
+        LIMIT 30
+    """, (f'%{q}%', f'%{q}%'))
+
+    return jsonify([{
+        'titulo':               r['titulo'],
+        'distribuidora':        r['distribuidora'] or '',
+        'fecha_estreno':        r['fecha_estreno'].isoformat() if r['fecha_estreno'] else None,
+        'semanas_en_cartelera': r['semanas_en_cartelera'],
+        'recaudacion_total':    float(r['recaudacion_total']) if r['recaudacion_total'] is not None else None,
+        'espectadores_total':   r['espectadores_total'],
+        'mejor_rank':           r['mejor_rank'],
+    } for r in rows])
+
+
+@app.route('/api/pelicula_semanal/evolucion')
+def api_pelicula_semanal_evolucion():
+    """Serie semanal (recaudación, espectadores, rank) de una película concreta
+    en top25/topespanol, para el gráfico de evolución de taquilla."""
+    tab = request.args.get('tab', 'top25')
+    table = 'top25' if tab == 'top25' else 'topespanol'
+    titulo = request.args.get('titulo', '').strip()
+    distribuidora = request.args.get('distribuidora', '').strip()
+    if not titulo:
+        return jsonify([])
+
+    rows = query(f"""
+        SELECT fecha_inicio, fecha_fin, semana, rank, recaudacion, total_espectadores, cines
+        FROM {table}
+        WHERE titulo = %s AND COALESCE(distribuidora, '') = %s
+        ORDER BY fecha_inicio ASC
+    """, (titulo, distribuidora))
+
+    return jsonify([{
+        'fecha_inicio':  r['fecha_inicio'].isoformat() if r['fecha_inicio'] else None,
+        'fecha_fin':     r['fecha_fin'].isoformat() if r['fecha_fin'] else None,
+        'semana':        r['semana'],
+        'rank':          r['rank'],
+        'recaudacion':   float(r['recaudacion']) if r['recaudacion'] is not None else None,
+        'espectadores':  r['total_espectadores'],
+        'cines':         r['cines'],
+    } for r in rows])
 
 
 @app.route('/api/anual/search')
@@ -1155,6 +1188,174 @@ regexp_replace(
 """
 
 
+PELICULA_TMDB_UPSERT_SQL = """
+INSERT INTO pelicula_tmdb_match (
+    expediente_icaa, tmdb_id, sin_tmdb, match_score, fuente, verificado, notas,
+    titulo_tmdb, titulo_original_tmdb, tagline, sinopsis, duracion_min,
+    fecha_estreno_tmdb, generos, paises_produccion, productoras, director_tmdb,
+    reparto_principal, keywords, puntuacion_tmdb, votos_tmdb, popularidad_tmdb,
+    presupuesto_usd, recaudacion_mundial_usd, poster_url, backdrop_url,
+    trailer_url, idioma_original, estado, updated_at
+) VALUES (
+    %(expediente_icaa)s, %(tmdb_id)s, FALSE, %(match_score)s, %(fuente)s, %(verificado)s, %(notas)s,
+    %(titulo_tmdb)s, %(titulo_original_tmdb)s, %(tagline)s, %(sinopsis)s, %(duracion_min)s,
+    %(fecha_estreno_tmdb)s, %(generos)s, %(paises_produccion)s, %(productoras)s, %(director_tmdb)s,
+    %(reparto_principal)s, %(keywords)s, %(puntuacion_tmdb)s, %(votos_tmdb)s, %(popularidad_tmdb)s,
+    %(presupuesto_usd)s, %(recaudacion_mundial_usd)s, %(poster_url)s, %(backdrop_url)s,
+    %(trailer_url)s, %(idioma_original)s, %(estado)s, NOW()
+)
+ON CONFLICT (expediente_icaa) DO UPDATE SET
+    tmdb_id = EXCLUDED.tmdb_id, sin_tmdb = FALSE, match_score = EXCLUDED.match_score,
+    fuente = EXCLUDED.fuente, verificado = EXCLUDED.verificado,
+    notas = COALESCE(EXCLUDED.notas, pelicula_tmdb_match.notas),
+    titulo_tmdb = EXCLUDED.titulo_tmdb, titulo_original_tmdb = EXCLUDED.titulo_original_tmdb,
+    tagline = EXCLUDED.tagline, sinopsis = EXCLUDED.sinopsis, duracion_min = EXCLUDED.duracion_min,
+    fecha_estreno_tmdb = EXCLUDED.fecha_estreno_tmdb, generos = EXCLUDED.generos,
+    paises_produccion = EXCLUDED.paises_produccion, productoras = EXCLUDED.productoras,
+    director_tmdb = EXCLUDED.director_tmdb, reparto_principal = EXCLUDED.reparto_principal,
+    keywords = EXCLUDED.keywords, puntuacion_tmdb = EXCLUDED.puntuacion_tmdb,
+    votos_tmdb = EXCLUDED.votos_tmdb, popularidad_tmdb = EXCLUDED.popularidad_tmdb,
+    presupuesto_usd = EXCLUDED.presupuesto_usd, recaudacion_mundial_usd = EXCLUDED.recaudacion_mundial_usd,
+    poster_url = EXCLUDED.poster_url, backdrop_url = EXCLUDED.backdrop_url,
+    trailer_url = EXCLUDED.trailer_url, idioma_original = EXCLUDED.idioma_original,
+    estado = EXCLUDED.estado, updated_at = NOW();
+"""
+
+
+def guardar_datos_tmdb(expediente_icaa, tmdb_id, match_score, fuente, verificado, notas):
+    """Descarga la ficha completa de TMDB (tmdb_enricher) y la guarda en
+    pelicula_tmdb_match. Devuelve True si TMDB devolvió datos usables."""
+    detalle = tmdb_enricher.obtener_detalle_completo(tmdb_id)
+    meta = tmdb_enricher.extraer_metadatos(detalle)
+    if not meta or not meta.get("tmdb_id"):
+        return False
+
+    params = dict(meta)
+    params["director_tmdb"] = params.pop("director", None) or None
+    for campo in ("titulo_tmdb", "titulo_original_tmdb", "tagline", "sinopsis",
+                  "fecha_estreno_tmdb", "poster_url", "backdrop_url", "trailer_url",
+                  "idioma_original", "estado"):
+        if params.get(campo) == "":
+            params[campo] = None
+
+    params["expediente_icaa"] = expediente_icaa
+    params["match_score"] = match_score
+    params["fuente"] = fuente
+    params["verificado"] = verificado
+    params["notas"] = notas
+
+    execute(PELICULA_TMDB_UPSERT_SQL, params)
+    return True
+
+
+def buscar_y_guardar_tmdb(expediente_icaa, titulo, anio):
+    """Busca en TMDB por título/año (mismo matcher que tmdb_enricher.py) y, si
+    encuentra un candidato razonable, guarda su ficha completa. Devuelve
+    (encontrado: bool, tmdb_id: int|None, score: float)."""
+    tmdb_id, score, _candidato = tmdb_enricher.buscar_pelicula(titulo, anio, solo_espanol=True)
+    if not tmdb_id:
+        return False, None, 0
+    ok = guardar_datos_tmdb(expediente_icaa, tmdb_id, score, 'auto_busqueda', False,
+                             'Encontrado por búsqueda automática — revisar')
+    return ok, tmdb_id, score
+
+
+def asegurar_ficha_icaa_completa(expediente_icaa):
+    """
+    Cuando se confirma manualmente un match hacia un expediente_icaa que en
+    icaa_fichas solo tiene título/id (sin datos reales), intenta rellenarlo:
+
+    1. Si el expediente ya está en scrape_icaa (con datos completos), copia
+       esa fila a icaa_fichas.
+    2. Si no, intenta descargarlo en vivo del catálogo ICAA y lo guarda
+       directamente en icaa_fichas.
+
+    Devuelve True si consiguió datos completos, False si no (el mapping
+    título->id ya guardado por el caller sigue siendo válido de todas formas).
+    El HTML temporal de la descarga en vivo se escribe en /tmp, no en el
+    directorio del proyecto (que está montado como volumen compartido).
+    """
+    ya_completa = query("""
+        SELECT 1 FROM icaa_fichas
+        WHERE expediente_icaa = %s AND (director IS NOT NULL OR sinopsis IS NOT NULL)
+    """, [expediente_icaa])
+    if ya_completa:
+        return True
+
+    en_scrape = query("SELECT 1 FROM scrape_icaa WHERE expediente_icaa = %s", [expediente_icaa])
+    if en_scrape:
+        execute("""
+            INSERT INTO icaa_fichas (
+                expediente_icaa, titulo, director, calificacion, anio_produccion,
+                fecha_estreno, duracion_min, tipo, genero, nacionalidad,
+                recaudacion_eur, espectadores, subvenciones_total_eur,
+                sinopsis, etiquetas, ficha_artistica, ficha_tecnica,
+                empresas_productoras, distribuidoras, subvenciones,
+                fecha_inicio_rodaje, fecha_fin_rodaje, lugares_rodaje,
+                premios, festivales, updated_at
+            )
+            SELECT
+                expediente_icaa, titulo, director, calificacion, anio_produccion,
+                fecha_estreno, duracion_min, tipo, genero, nacionalidad,
+                recaudacion_eur, espectadores, subvenciones_total_eur,
+                sinopsis, etiquetas, ficha_artistica, ficha_tecnica,
+                empresas_productoras, distribuidoras, subvenciones,
+                fecha_inicio_rodaje, fecha_fin_rodaje, lugares_rodaje,
+                premios, festivales, NOW()
+            FROM scrape_icaa
+            WHERE expediente_icaa = %s
+            ON CONFLICT (expediente_icaa) DO UPDATE SET
+                titulo = EXCLUDED.titulo, director = EXCLUDED.director,
+                calificacion = EXCLUDED.calificacion, anio_produccion = EXCLUDED.anio_produccion,
+                fecha_estreno = EXCLUDED.fecha_estreno, duracion_min = EXCLUDED.duracion_min,
+                tipo = EXCLUDED.tipo, genero = EXCLUDED.genero, nacionalidad = EXCLUDED.nacionalidad,
+                recaudacion_eur = EXCLUDED.recaudacion_eur, espectadores = EXCLUDED.espectadores,
+                subvenciones_total_eur = EXCLUDED.subvenciones_total_eur, sinopsis = EXCLUDED.sinopsis,
+                etiquetas = EXCLUDED.etiquetas, ficha_artistica = EXCLUDED.ficha_artistica,
+                ficha_tecnica = EXCLUDED.ficha_tecnica, empresas_productoras = EXCLUDED.empresas_productoras,
+                distribuidoras = EXCLUDED.distribuidoras, subvenciones = EXCLUDED.subvenciones,
+                fecha_inicio_rodaje = EXCLUDED.fecha_inicio_rodaje, fecha_fin_rodaje = EXCLUDED.fecha_fin_rodaje,
+                lugares_rodaje = EXCLUDED.lugares_rodaje, premios = EXCLUDED.premios,
+                festivales = EXCLUDED.festivales, updated_at = NOW();
+        """, [expediente_icaa])
+        return True
+
+    try:
+        pid = int(expediente_icaa)
+    except ValueError:
+        return False
+
+    session = scrape_icaa.nueva_sesion()
+    html, fatal = scrape_icaa.descargar_ficha(session, pid)
+    if fatal or not html:
+        return False
+
+    tmp_path = Path(tempfile.gettempdir()) / f"{pid}.html"
+    tmp_path.write_text(html, encoding='utf-8')
+    try:
+        datos = icaa_parser.parsear_html(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    if not datos:
+        return False
+
+    execute(icaa_parser.UPSERT_SQL, (
+        datos["expediente_icaa"], datos["titulo"], datos["director"], datos["calificacion"],
+        datos["anio_produccion"], datos["fecha_estreno"], datos["duracion_min"], datos["tipo"],
+        datos["genero"], datos["nacionalidad"], datos["recaudacion_eur"], datos["espectadores"],
+        datos["subvenciones_total_eur"], datos["sinopsis"], datos["etiquetas"],
+        json.dumps(datos["ficha_artistica"], ensure_ascii=False),
+        json.dumps(datos["ficha_tecnica"], ensure_ascii=False),
+        datos["empresas_productoras"], datos["distribuidoras"],
+        json.dumps(datos["subvenciones"], ensure_ascii=False),
+        datos["fecha_inicio_rodaje"], datos["fecha_fin_rodaje"], datos["lugares_rodaje"],
+        json.dumps(datos["premios"], ensure_ascii=False),
+        json.dumps(datos["festivales"], ensure_ascii=False),
+    ))
+    return True
+
+
 def ensure_matching_schema():
     """Create lightweight fields needed by the manual matching UI."""
     execute("""
@@ -1183,9 +1384,79 @@ def ensure_matching_schema():
         CREATE INDEX IF NOT EXISTS subvenciones_icaa_matches_expediente_idx
         ON subvenciones_icaa_matches (expediente_icaa);
     """)
+    # subvenciones_raw se referencia por id (no por título): un mismo título puede
+    # repetirse en filas distintas (dos ayudas, o dos películas homónimas de años
+    # distintos), así que el título no sirve como clave de match fiable.
+    execute("""
+        CREATE TABLE IF NOT EXISTS subvenciones_raw_icaa_matches (
+            subvenciones_raw_id INTEGER PRIMARY KEY REFERENCES subvenciones_raw(id),
+            expediente_icaa     TEXT,
+            sin_ficha           BOOLEAN NOT NULL DEFAULT FALSE,
+            notas               TEXT,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT chk_subv_raw_expediente_o_sin_ficha CHECK (expediente_icaa IS NOT NULL OR sin_ficha)
+        );
+    """)
+    execute("""
+        CREATE INDEX IF NOT EXISTS subvenciones_raw_icaa_matches_expediente_idx
+        ON subvenciones_raw_icaa_matches (expediente_icaa);
+    """)
+    execute("""
+        CREATE TABLE IF NOT EXISTS pelicula_tmdb_match (
+            expediente_icaa TEXT PRIMARY KEY,
+            tmdb_id         INTEGER,
+            sin_tmdb        BOOLEAN NOT NULL DEFAULT FALSE,
+            match_score     NUMERIC(4,2),
+            fuente          TEXT,
+            verificado      BOOLEAN NOT NULL DEFAULT FALSE,
+            notas           TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT chk_pelicula_tmdb_o_sin_tmdb CHECK (tmdb_id IS NOT NULL OR sin_tmdb)
+        );
+    """)
+    execute("""
+        CREATE INDEX IF NOT EXISTS pelicula_tmdb_match_tmdb_id_idx
+        ON pelicula_tmdb_match (tmdb_id);
+    """)
+    # Datos "ricos" de TMDB (sinopsis, póster, reparto...) para la película ya
+    # vinculada — mismos campos que produce tmdb_enricher.py, aquí con
+    # expediente_icaa como clave en vez de (titulo, distribuidora).
+    execute("""
+        ALTER TABLE pelicula_tmdb_match
+        ADD COLUMN IF NOT EXISTS titulo_tmdb          TEXT,
+        ADD COLUMN IF NOT EXISTS titulo_original_tmdb TEXT,
+        ADD COLUMN IF NOT EXISTS tagline              TEXT,
+        ADD COLUMN IF NOT EXISTS sinopsis             TEXT,
+        ADD COLUMN IF NOT EXISTS duracion_min         INTEGER,
+        ADD COLUMN IF NOT EXISTS fecha_estreno_tmdb   DATE,
+        ADD COLUMN IF NOT EXISTS generos              TEXT[],
+        ADD COLUMN IF NOT EXISTS paises_produccion    TEXT[],
+        ADD COLUMN IF NOT EXISTS productoras          TEXT[],
+        ADD COLUMN IF NOT EXISTS director_tmdb        TEXT,
+        ADD COLUMN IF NOT EXISTS reparto_principal    TEXT[],
+        ADD COLUMN IF NOT EXISTS keywords             TEXT[],
+        ADD COLUMN IF NOT EXISTS puntuacion_tmdb      NUMERIC(4,2),
+        ADD COLUMN IF NOT EXISTS votos_tmdb           INTEGER,
+        ADD COLUMN IF NOT EXISTS popularidad_tmdb     NUMERIC(10,4),
+        ADD COLUMN IF NOT EXISTS presupuesto_usd      BIGINT,
+        ADD COLUMN IF NOT EXISTS recaudacion_mundial_usd BIGINT,
+        ADD COLUMN IF NOT EXISTS poster_url           TEXT,
+        ADD COLUMN IF NOT EXISTS backdrop_url         TEXT,
+        ADD COLUMN IF NOT EXISTS trailer_url          TEXT,
+        ADD COLUMN IF NOT EXISTS idioma_original      TEXT,
+        ADD COLUMN IF NOT EXISTS estado               TEXT;
+    """)
+    # Permite que varias variantes de nombre ICAA (nombre_icaa) apunten a la misma
+    # persona TMDB — necesario para dar de alta alias sin tocar la fila existente.
+    execute("""
+        ALTER TABLE tmdb_gente
+        DROP CONSTRAINT IF EXISTS tmdb_gente_tmdb_id_key;
+    """)
 
 
-def get_icaa_matching_pending(limit=25):
+def get_icaa_matching_pending(limit=25, q=None):
     """Titles from anual_esp that still do not map to an ICAA ficha."""
     norm_a = TITLE_NORM_SQL.format(field='a.titulo')
     norm_i = TITLE_NORM_SQL.format(field='i.titulo')
@@ -1204,13 +1475,14 @@ def get_icaa_matching_pending(limit=25):
             WHERE i.titulo_anual_esp = a.titulo
                OR {norm_i} = {norm_a}
         )
+          AND (%(q)s::text IS NULL OR a.titulo ILIKE '%%' || %(q)s || '%%')
         GROUP BY a.titulo, titulo_normalizado
         ORDER BY recaudacion_total DESC NULLS LAST, fecha_estreno DESC NULLS LAST
-        LIMIT %s
-    """, [limit])
+        LIMIT %(limit)s
+    """, {'q': q, 'limit': limit})
 
 
-def get_tmdb_people_pending(limit=50):
+def get_tmdb_people_pending(limit=50, q=None):
     """People rows whose TMDB match likely needs human review."""
     return query("""
         SELECT nombre_icaa, nombre_tmdb, tmdb_id, roles, match_score,
@@ -1223,16 +1495,17 @@ def get_tmdb_people_pending(limit=50):
               OR match_score IS NULL
               OR match_score < 0.75
           )
+          AND (%(q)s::text IS NULL OR nombre_icaa ILIKE '%%' || %(q)s || '%%')
         ORDER BY
             CASE WHEN tmdb_id IS NULL THEN 0 ELSE 1 END,
             match_score ASC NULLS FIRST,
             popularidad DESC NULLS LAST,
             nombre_icaa ASC
-        LIMIT %s
-    """, [limit])
+        LIMIT %(limit)s
+    """, {'q': q, 'limit': limit})
 
 
-def get_subvenciones_matching_pending(limit=50):
+def get_subvenciones_matching_pending(limit=50, q=None):
     """Titles in subvenciones that still have no ICAA ficha linked."""
     return query("""
         SELECT
@@ -1245,10 +1518,71 @@ def get_subvenciones_matching_pending(limit=50):
         LEFT JOIN subvenciones_icaa_matches m
           ON m.titulo_subvencion = s.titulo
         WHERE COALESCE(m.expediente_icaa, s.expediente_icaa) IS NULL
+          AND (%(q)s::text IS NULL OR s.titulo ILIKE '%%' || %(q)s || '%%')
         GROUP BY s.titulo
         ORDER BY importe_total DESC NULLS LAST, ultimo_anio DESC NULLS LAST, s.titulo
-        LIMIT %s
-    """, [limit])
+        LIMIT %(limit)s
+    """, {'q': q, 'limit': limit})
+
+
+def get_subvenciones_raw_matching_pending(limit=50, q=None, solo_dificiles=True):
+    """Rows in subvenciones_raw (by id, not title) without an ICAA match yet.
+
+    Calcula candidatos por título normalizado en icaa_fichas + scrape_icaa. Por
+    defecto (solo_dificiles=True) oculta los casos con un único candidato claro
+    -- esos ya están prácticamente resueltos y no necesitan revisión humana --
+    y solo deja ver los que no tienen ningún candidato o tienen varios
+    (ambiguos). Con `q` se busca por título sin aplicar ese filtro de dificultad,
+    para poder revisar cualquier fila puntual independientemente de su estado.
+    """
+    norm_r = TITLE_NORM_SQL.format(field='r.titulo')
+    norm_i = TITLE_NORM_SQL.format(field='titulo')
+    dificultad_filtro = "AND n_candidatos != 1" if (solo_dificiles and not q) else ""
+    return query(f"""
+        WITH pendientes AS (
+            SELECT r.id, r.titulo, r.anio, r.tipo_ayuda, r.importe_ayuda,
+                   {norm_r} AS norm
+            FROM subvenciones_raw r
+            LEFT JOIN subvenciones_raw_icaa_matches m ON m.subvenciones_raw_id = r.id
+            WHERE m.subvenciones_raw_id IS NULL
+              AND (%(q)s::text IS NULL OR r.titulo ILIKE '%%' || %(q)s || '%%')
+        ),
+        candidatos AS (
+            SELECT expediente_icaa, titulo, {norm_i} AS norm FROM icaa_fichas
+            UNION
+            SELECT expediente_icaa, titulo, {norm_i} AS norm FROM scrape_icaa
+        ),
+        agregado AS (
+            SELECT p.id, p.titulo, p.anio, p.tipo_ayuda, p.importe_ayuda,
+                   COUNT(DISTINCT c.expediente_icaa) AS n_candidatos,
+                   (array_agg(c.expediente_icaa) FILTER (WHERE c.expediente_icaa IS NOT NULL))[1] AS candidato_expediente,
+                   (array_agg(c.titulo) FILTER (WHERE c.expediente_icaa IS NOT NULL))[1] AS candidato_titulo
+            FROM pendientes p
+            LEFT JOIN candidatos c ON c.norm = p.norm
+            GROUP BY p.id, p.titulo, p.anio, p.tipo_ayuda, p.importe_ayuda
+        )
+        SELECT * FROM agregado
+        WHERE TRUE {dificultad_filtro}
+        ORDER BY n_candidatos DESC, importe_ayuda DESC NULLS LAST, anio DESC, id
+        LIMIT %(limit)s
+    """, {'q': q, 'limit': limit})
+
+
+def get_pelicula_tmdb_pending(limit=50, q=None):
+    """ICAA fichas (catálogo maestro) sin tmdb_id vinculado todavía."""
+    return query("""
+        SELECT
+            f.expediente_icaa,
+            f.titulo,
+            f.anio_produccion,
+            f.director
+        FROM icaa_fichas f
+        LEFT JOIN pelicula_tmdb_match m ON m.expediente_icaa = f.expediente_icaa
+        WHERE m.expediente_icaa IS NULL
+          AND (%(q)s::text IS NULL OR f.titulo ILIKE '%%' || %(q)s || '%%')
+        ORDER BY f.fecha_estreno DESC NULLS LAST, f.anio_produccion DESC NULLS LAST
+        LIMIT %(limit)s
+    """, {'q': q, 'limit': limit})
 
 
 def require_matching_admin():
@@ -1267,15 +1601,24 @@ def admin_matching():
     tab = request.args.get('tab', 'icaa')
     msg = request.args.get('msg')
     err = request.args.get('err')
+    q = (request.args.get('q') or '').strip() or None
+    mostrar_todos = request.args.get('todos') == '1'
 
-    icaa_pending = get_icaa_matching_pending(25)
-    people_pending = get_tmdb_people_pending(50)
-    subvenciones_pending = get_subvenciones_matching_pending(50)
+    # El buscador es por pestaña: solo filtra la cola de la pestaña activa, así
+    # los contadores de las demás pestañas no cambian al buscar en una de ellas.
+    icaa_pending = get_icaa_matching_pending(25, q=q if tab == 'icaa' else None)
+    people_pending = get_tmdb_people_pending(50, q=q if tab == 'personas' else None)
+    subvenciones_pending = get_subvenciones_matching_pending(50, q=q if tab == 'subvenciones' else None)
+    subvenciones_raw_pending = get_subvenciones_raw_matching_pending(
+        50, q=q if tab == 'subvenciones_raw' else None, solo_dificiles=not mostrar_todos)
+    pelicula_tmdb_pending = get_pelicula_tmdb_pending(50, q=q if tab == 'pelicula_tmdb' else None)
 
     stats = {
         'icaa_pending': len(icaa_pending),
         'people_pending': len(people_pending),
         'subvenciones_pending': len(subvenciones_pending),
+        'subvenciones_raw_pending': len(subvenciones_raw_pending),
+        'pelicula_tmdb_pending': len(pelicula_tmdb_pending),
     }
     return render_template(
         'admin_matching.html',
@@ -1283,10 +1626,14 @@ def admin_matching():
         msg=msg,
         err=err,
         token=token,
+        q=q or '',
+        mostrar_todos=mostrar_todos,
         stats=stats,
         icaa_pending=icaa_pending,
         people_pending=people_pending,
         subvenciones_pending=subvenciones_pending,
+        subvenciones_raw_pending=subvenciones_raw_pending,
+        pelicula_tmdb_pending=pelicula_tmdb_pending,
     )
 
 
@@ -1308,7 +1655,19 @@ def admin_matching_icaa_save():
             titulo = COALESCE(NULLIF(icaa_fichas.titulo, ''), EXCLUDED.titulo);
     """, [expediente_icaa, titulo, titulo])
 
-    return redirect(url_for('admin_matching', tab='icaa', token=token, msg=f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa}.'))
+    try:
+        completa = asegurar_ficha_icaa_completa(expediente_icaa)
+    except Exception as e:
+        completa = False
+        app.logger.warning('No se pudo completar la ficha %s: %s', expediente_icaa, e)
+
+    if completa:
+        msg = f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa} (ficha completa).'
+    else:
+        msg = (f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa}. '
+               f'No se pudo traer la ficha completa (ni en scrape_icaa ni en vivo) — solo título/id.')
+
+    return redirect(url_for('admin_matching', tab='icaa', token=token, msg=msg))
 
 
 @app.route('/admin/matching/persona', methods=['POST'])
@@ -1381,6 +1740,155 @@ def admin_matching_subvenciones_save():
     return redirect(url_for('admin_matching', tab='subvenciones', token=token, msg=f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa}.'))
 
 
+@app.route('/admin/matching/subvenciones_raw', methods=['POST'])
+def admin_matching_subvenciones_raw_save():
+    token = require_matching_admin()
+    ensure_matching_schema()
+    subvenciones_raw_id = request.form.get('subvenciones_raw_id', '').strip()
+    expediente_icaa = request.form.get('expediente_icaa', '').strip()
+    action = request.form.get('action', 'save')
+    notas = request.form.get('notas', '').strip()
+
+    if not subvenciones_raw_id:
+        return redirect(url_for('admin_matching', tab='subvenciones_raw', token=token, err='Falta el id de subvenciones_raw.'))
+
+    try:
+        raw_id = int(subvenciones_raw_id)
+    except ValueError:
+        return redirect(url_for('admin_matching', tab='subvenciones_raw', token=token, err='El id debe ser numerico.'))
+
+    if action == 'sin_ficha':
+        execute("""
+            INSERT INTO subvenciones_raw_icaa_matches (subvenciones_raw_id, expediente_icaa, sin_ficha, notas)
+            VALUES (%s, NULL, TRUE, COALESCE(NULLIF(%s, ''), 'Confirmado: sin ficha ICAA'))
+            ON CONFLICT (subvenciones_raw_id) DO UPDATE
+            SET expediente_icaa = NULL, sin_ficha = TRUE,
+                notas = COALESCE(NULLIF(%s, ''), subvenciones_raw_icaa_matches.notas),
+                updated_at = NOW();
+        """, [raw_id, notas, notas])
+        msg = f'Fila {raw_id} marcada sin ficha ICAA.'
+    else:
+        if not expediente_icaa:
+            return redirect(url_for('admin_matching', tab='subvenciones_raw', token=token, err='Falta el expediente ICAA.'))
+        execute("""
+            INSERT INTO subvenciones_raw_icaa_matches (subvenciones_raw_id, expediente_icaa, sin_ficha, notas)
+            VALUES (%s, %s, FALSE, NULLIF(%s, ''))
+            ON CONFLICT (subvenciones_raw_id) DO UPDATE
+            SET expediente_icaa = EXCLUDED.expediente_icaa, sin_ficha = FALSE,
+                notas = COALESCE(EXCLUDED.notas, subvenciones_raw_icaa_matches.notas),
+                updated_at = NOW();
+        """, [raw_id, expediente_icaa, notas])
+        msg = f'Fila {raw_id} -> ICAA {expediente_icaa}.'
+
+    return redirect(url_for('admin_matching', tab='subvenciones_raw', token=token, msg=msg))
+
+
+@app.route('/admin/matching/pelicula_tmdb', methods=['POST'])
+def admin_matching_pelicula_tmdb_save():
+    token = require_matching_admin()
+    ensure_matching_schema()
+    expediente_icaa = request.form.get('expediente_icaa', '').strip()
+    tmdb_id = request.form.get('tmdb_id', '').strip()
+    action = request.form.get('action', 'save')
+    notas = request.form.get('notas', '').strip()
+
+    if not expediente_icaa:
+        return redirect(url_for('admin_matching', tab='pelicula_tmdb', token=token, err='Falta el expediente ICAA.'))
+
+    if action == 'sin_tmdb':
+        execute("""
+            INSERT INTO pelicula_tmdb_match (expediente_icaa, tmdb_id, sin_tmdb, fuente, verificado, notas)
+            VALUES (%s, NULL, TRUE, 'manual', TRUE, COALESCE(NULLIF(%s, ''), 'Confirmado: sin ficha TMDB'))
+            ON CONFLICT (expediente_icaa) DO UPDATE
+            SET tmdb_id = NULL, sin_tmdb = TRUE, verificado = TRUE, fuente = 'manual',
+                notas = COALESCE(NULLIF(%s, ''), pelicula_tmdb_match.notas),
+                updated_at = NOW();
+        """, [expediente_icaa, notas, notas])
+        msg = f'{expediente_icaa} marcado sin TMDB.'
+
+    elif action == 'buscar':
+        filas = query("SELECT titulo, anio_produccion FROM icaa_fichas WHERE expediente_icaa = %s", [expediente_icaa])
+        if not filas:
+            return redirect(url_for('admin_matching', tab='pelicula_tmdb', token=token, err=f'{expediente_icaa} no está en icaa_fichas.'))
+        titulo_pelicula = filas[0]['titulo']
+        anio_pelicula = filas[0]['anio_produccion']
+        try:
+            encontrado, tmdb_id_auto, score = buscar_y_guardar_tmdb(expediente_icaa, titulo_pelicula, anio_pelicula)
+        except Exception as e:
+            app.logger.warning('Búsqueda TMDB falló para %s: %s', expediente_icaa, e)
+            encontrado, tmdb_id_auto, score = False, None, 0
+
+        if encontrado:
+            msg = (f'{expediente_icaa} ({titulo_pelicula}) -> TMDB {tmdb_id_auto} '
+                   f'encontrado automáticamente (score {score:.2f}) — revísalo y confírmalo.')
+        else:
+            msg = (f'No se encontró candidato en TMDB para "{titulo_pelicula}". '
+                   f'Prueba a buscarlo a mano en themoviedb.org e introduce el ID.')
+        return redirect(url_for('admin_matching', tab='pelicula_tmdb', token=token, msg=msg))
+
+    else:
+        if not tmdb_id:
+            return redirect(url_for('admin_matching', tab='pelicula_tmdb', token=token, err='Falta el TMDB ID.'))
+        try:
+            tmdb_id_int = int(tmdb_id)
+        except ValueError:
+            return redirect(url_for('admin_matching', tab='pelicula_tmdb', token=token, err='El TMDB ID debe ser numerico.'))
+
+        try:
+            completa = guardar_datos_tmdb(expediente_icaa, tmdb_id_int, 1.0, 'manual', True, notas or None)
+        except Exception as e:
+            app.logger.warning('No se pudo traer datos TMDB %s para %s: %s', tmdb_id_int, expediente_icaa, e)
+            completa = False
+
+        if completa:
+            msg = f'{expediente_icaa} -> TMDB {tmdb_id_int} (ficha completa).'
+        else:
+            # Aun sin poder traer el detalle, guardamos al menos el vínculo del ID.
+            execute("""
+                INSERT INTO pelicula_tmdb_match (expediente_icaa, tmdb_id, sin_tmdb, fuente, verificado, notas)
+                VALUES (%s, %s, FALSE, 'manual', TRUE, NULLIF(%s, ''))
+                ON CONFLICT (expediente_icaa) DO UPDATE
+                SET tmdb_id = EXCLUDED.tmdb_id, sin_tmdb = FALSE, fuente = 'manual', verificado = TRUE,
+                    notas = COALESCE(EXCLUDED.notas, pelicula_tmdb_match.notas),
+                    updated_at = NOW();
+            """, [expediente_icaa, tmdb_id_int, notas])
+            msg = f'{expediente_icaa} -> TMDB {tmdb_id_int}. No se pudo traer el detalle completo de TMDB.'
+
+    return redirect(url_for('admin_matching', tab='pelicula_tmdb', token=token, msg=msg))
+
+
+@app.route('/admin/matching/persona/alias', methods=['POST'])
+def admin_matching_persona_alias_save():
+    """Da de alta una variante de nombre ICAA nueva apuntando a una persona TMDB
+    ya existente (o crea la fila si tmdb_id es nuevo). No pisa filas existentes:
+    si nombre_icaa ya existe, redirige al formulario normal de corrección."""
+    token = require_matching_admin()
+    nombre_icaa = request.form.get('nombre_icaa', '').strip()
+    tmdb_id = request.form.get('tmdb_id', '').strip()
+    notas = request.form.get('notas', '').strip()
+
+    if not nombre_icaa or not tmdb_id:
+        return redirect(url_for('admin_matching', tab='personas', token=token, err='Falta el nombre ICAA o el TMDB ID.'))
+
+    try:
+        tmdb_id_int = int(tmdb_id)
+    except ValueError:
+        return redirect(url_for('admin_matching', tab='personas', token=token, err='El TMDB ID debe ser numerico.'))
+
+    existe = query("SELECT 1 FROM tmdb_gente WHERE nombre_icaa = %s", [nombre_icaa])
+    if existe:
+        return redirect(url_for('admin_matching', tab='personas', token=token,
+                                 err=f'"{nombre_icaa}" ya existe en tmdb_gente — corrigelo desde la cola de pendientes.'))
+
+    execute("""
+        INSERT INTO tmdb_gente (nombre_icaa, tmdb_id, revisado_manual, notas)
+        VALUES (%s, %s, TRUE, COALESCE(NULLIF(%s, ''), 'Alias añadido manualmente'));
+    """, [nombre_icaa, tmdb_id_int, notas])
+
+    return redirect(url_for('admin_matching', tab='personas', token=token,
+                             msg=f'Alias añadido: "{nombre_icaa}" -> TMDB {tmdb_id_int}.'))
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -1414,15 +1922,7 @@ def index():
 
     ranking = get_weekly_ranking(table, semana_actual[0], semana_actual[1])
     stats = get_stats_resumen(table)
-    
-    current_year = date.today().year
-    available_years = get_available_years(table)
-    year_param = request.args.get('year')
-    selected_year = int(year_param) if year_param and year_param.isdigit() else current_year
-    if selected_year not in available_years:
-        selected_year = current_year
-    top_year = get_top_year(table, selected_year, 10)
-    top_historico = get_top_historico(table, 10)
+    top_estrenos = get_top_estrenos(table, 10)
 
     hist_stats = get_historical_concentration(table, 52)
     concentration = get_concentration(table, semana_actual[0], semana_actual[1], hist_stats)
@@ -1432,25 +1932,46 @@ def index():
     last_update_row = query("SELECT MAX(processed_at) as last_run FROM processed_pdfs")
     last_update = last_update_row[0]['last_run'] if last_update_row else None
     attendance_chart = get_attendance_by_year(table)
-    anual_years = get_anual_esp_years()
 
-    return render_template('index.html', 
-                           tab=tab, 
-                           weeks=weeks, 
+    return render_template('index.html',
+                           tab=tab,
+                           weeks=weeks,
                            weeks_by_year=dict(weeks_by_year),
-                           ranking=ranking, 
-                           semana_actual=semana_actual, 
+                           ranking=ranking,
+                           semana_actual=semana_actual,
                            stats=stats,
-                           top_year=top_year, 
-                           top_historico=top_historico,
-                           current_year=current_year,
-                           selected_year=selected_year,
-                           available_years=available_years,
+                           top_estrenos=top_estrenos,
                            concentration=concentration,
                            hist_stats=hist_stats,
                            capacity=capacity,
                            attendance_chart=attendance_chart,
-                           last_update=last_update,
+                           last_update=last_update)
+
+
+@app.route('/historico-taquilla')
+def historico_taquilla():
+    """Rankings acumulados + informe anual oficial ICAA + distribución percentil."""
+    tab = request.args.get('tab', 'top25')
+    table = 'top25' if tab == 'top25' else 'topespanol'
+
+    current_year = date.today().year
+    available_years = get_available_years(table)
+    year_param = request.args.get('year')
+    selected_year = int(year_param) if year_param and year_param.isdigit() else current_year
+    if selected_year not in available_years:
+        selected_year = current_year
+
+    top_year = get_top_year(table, selected_year, 10)
+    top_historico = get_top_historico(table, 10)
+    anual_years = get_anual_esp_years()
+
+    return render_template('historico_taquilla.html',
+                           tab=tab,
+                           top_year=top_year,
+                           top_historico=top_historico,
+                           current_year=current_year,
+                           selected_year=selected_year,
+                           available_years=available_years,
                            anual_years=anual_years)
 
 # ---------------------------------------------------------------------------

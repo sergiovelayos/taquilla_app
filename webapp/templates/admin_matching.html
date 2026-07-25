@@ -116,6 +116,21 @@
     </div>
 </nav>
 
+{% macro search_box(tab_name, extra_toggle=none) %}
+<form class="d-flex flex-wrap align-items-center gap-2 p-3 pb-2" method="get" action="{{ url_for('admin_matching') }}">
+    <input type="hidden" name="tab" value="{{ tab_name }}">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input class="form-control form-control-sm" type="search" name="q" value="{{ q if tab == tab_name else '' }}"
+           placeholder="Buscar título o nombre concreto…" style="max-width: 320px;">
+    <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-search"></i> Buscar</button>
+    {% if tab == tab_name and q %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_matching', tab=tab_name, token=token, todos=('1' if mostrar_todos else none)) }}">
+        <i class="bi bi-x-lg"></i> Limpiar búsqueda
+    </a>
+    {% endif %}
+    {% if extra_toggle %}{{ extra_toggle }}{% endif %}
+</form>
+{% endmacro %}
 <main class="container py-4">
     <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
         <div>
@@ -156,6 +171,22 @@
                 </div>
             </a>
         </div>
+        <div class="col-6 col-lg-3">
+            <a class="kpi-link" href="{{ url_for('admin_matching', tab='subvenciones_raw', token=token) }}">
+                <div class="kpi">
+                    <div class="kpi-value">{{ stats.subvenciones_raw_pending }}</div>
+                    <div class="kpi-label">Filas subvenciones_raw</div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-lg-3">
+            <a class="kpi-link" href="{{ url_for('admin_matching', tab='pelicula_tmdb', token=token) }}">
+                <div class="kpi">
+                    <div class="kpi-value">{{ stats.pelicula_tmdb_pending }}</div>
+                    <div class="kpi-label">Películas sin TMDB</div>
+                </div>
+            </a>
+        </div>
     </div>
 
     <ul class="nav nav-pills mb-3">
@@ -174,6 +205,16 @@
                 <i class="bi bi-bank me-1"></i>Subvenciones ICAA
             </a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link {% if tab == 'subvenciones_raw' %}active{% endif %}" href="{{ url_for('admin_matching', tab='subvenciones_raw', token=token) }}">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i>Subvenciones (raw)
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {% if tab == 'pelicula_tmdb' %}active{% endif %}" href="{{ url_for('admin_matching', tab='pelicula_tmdb', token=token) }}">
+                <i class="bi bi-badge-tm me-1"></i>Películas TMDB
+            </a>
+        </li>
     </ul>
 
     {% if tab == 'personas' %}
@@ -182,6 +223,7 @@
             <div class="work-panel-title"><i class="bi bi-person-vcard me-2"></i>Personas pendientes</div>
             <span class="badge text-bg-light">{{ people_pending|length }} visibles</span>
         </div>
+        {{ search_box('personas') }}
         {% if people_pending %}
         <div class="table-wrap">
             <table class="table matching-table">
@@ -250,12 +292,35 @@
         <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay personas pendientes en esta cola.</div>
         {% endif %}
     </section>
+
+    <section class="work-panel mt-3">
+        <div class="work-panel-header">
+            <div class="work-panel-title"><i class="bi bi-person-plus me-2"></i>Añadir variante de nombre (alias)</div>
+        </div>
+        <div class="p-3">
+            <div class="text-muted small mb-2">
+                Para cuando el mismo actor/director aparece escrito de forma distinta en ICAA (ej. "PEDRO ALMODOVAR" vs
+                "Pedro Almodóvar C.") y quieres vincular la variante nueva a una persona TMDB que ya tienes identificada,
+                sin esperar a que aparezca en la cola de pendientes.
+            </div>
+            <form class="person-form" action="{{ url_for('admin_matching_persona_alias_save') }}" method="post">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input class="form-control form-control-sm" type="text" name="nombre_icaa" placeholder="Nombre ICAA (variante nueva)" required>
+                <input class="form-control form-control-sm" type="number" name="tmdb_id" placeholder="TMDB ID" min="1" required>
+                <input class="form-control form-control-sm" type="text" name="notas" placeholder="Notas (opcional)">
+                <button class="btn btn-sm btn-success btn-icon" title="Añadir alias">
+                    <i class="bi bi-check2"></i>
+                </button>
+            </form>
+        </div>
+    </section>
     {% elif tab == 'subvenciones' %}
     <section class="work-panel">
         <div class="work-panel-header">
             <div class="work-panel-title"><i class="bi bi-bank me-2"></i>Títulos de subvenciones sin ficha ICAA</div>
             <span class="badge text-bg-light">{{ subvenciones_pending|length }} visibles</span>
         </div>
+        {{ search_box('subvenciones') }}
         {% if subvenciones_pending %}
         <div class="table-wrap">
             <table class="table matching-table">
@@ -308,12 +373,163 @@
         <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay títulos de subvenciones pendientes en esta cola.</div>
         {% endif %}
     </section>
+    {% elif tab == 'subvenciones_raw' %}
+    <section class="work-panel">
+        <div class="work-panel-header">
+            <div class="work-panel-title"><i class="bi bi-file-earmark-spreadsheet me-2"></i>subvenciones_raw sin ficha ICAA</div>
+            <span class="badge text-bg-light">{{ subvenciones_raw_pending|length }} visibles</span>
+        </div>
+        <div class="text-muted small p-3 pb-0">
+            Cada fila es un <code>id</code> de <code>subvenciones_raw</code>, no un título — un mismo título puede
+            aparecer varias veces (dos ayudas, o dos películas homónimas de años distintos) y cada una se resuelve
+            por separado.
+            {% if not mostrar_todos and not q %}
+            Por defecto solo se muestran los casos sin candidato o ambiguos (con varios candidatos) — los de
+            candidato único ya están prácticamente resueltos.
+            {% endif %}
+        </div>
+        {{ search_box('subvenciones_raw') }}
+        <div class="px-3 pb-2">
+            {% if mostrar_todos %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_matching', tab='subvenciones_raw', token=token, q=q or none) }}">
+                <i class="bi bi-eye-slash me-1"></i>Ocultar de nuevo los de candidato único
+            </a>
+            {% else %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_matching', tab='subvenciones_raw', token=token, q=q or none, todos='1') }}">
+                <i class="bi bi-eye me-1"></i>Mostrar también los de candidato único
+            </a>
+            {% endif %}
+        </div>
+        {% if subvenciones_raw_pending %}
+        <div class="table-wrap">
+            <table class="table matching-table">
+                <thead>
+                    <tr>
+                        <th>id</th>
+                        <th>Título</th>
+                        <th>Año / tipo</th>
+                        <th>Importe</th>
+                        <th>Candidatos</th>
+                        <th>Expediente ICAA</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in subvenciones_raw_pending %}
+                    <tr>
+                        <td><span class="text-muted">#{{ row.id }}</span></td>
+                        <td>
+                            <div class="name-main">{{ row.titulo }}</div>
+                            <a class="icaa-link name-sub" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>Catálogo ICAA
+                            </a>
+                        </td>
+                        <td>{{ row.anio }} &middot; <span class="text-muted">{{ row.tipo_ayuda }}</span></td>
+                        <td><span class="impact-badge"><i class="bi bi-cash-stack"></i>{{ row.importe_ayuda|euros_short }}</span></td>
+                        <td>
+                            {% if row.n_candidatos == 0 %}
+                            <span class="badge text-bg-danger">sin candidato</span>
+                            {% elif row.n_candidatos == 1 %}
+                            <span class="badge text-bg-success">único</span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark">{{ row.n_candidatos }} ambiguos</span>
+                            {% endif %}
+                            {% if row.candidato_expediente %}
+                            <div class="name-sub mt-1">
+                                <a class="icaa-link" href="https://sede.mcu.gob.es/CatalogoICAA/es-es/Peliculas/Detalle?Pelicula={{ row.candidato_expediente }}" target="_blank" rel="noreferrer">
+                                    {{ row.candidato_titulo }}
+                                </a> (ID {{ row.candidato_expediente }})
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form class="person-form" action="{{ url_for('admin_matching_subvenciones_raw_save') }}" method="post">
+                                <input type="hidden" name="token" value="{{ token }}">
+                                <input type="hidden" name="subvenciones_raw_id" value="{{ row.id }}">
+                                <input class="form-control form-control-sm" type="number" name="expediente_icaa"
+                                       placeholder="ID ICAA" min="1"
+                                       value="{{ row.candidato_expediente or '' }}">
+                                <input class="form-control form-control-sm" type="text" name="notas" placeholder="Notas">
+                                <button class="btn btn-sm btn-success btn-icon" name="action" value="save" title="Guardar">
+                                    <i class="bi bi-check2"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary btn-icon" name="action" value="sin_ficha" title="Sin ficha ICAA">
+                                    <i class="bi bi-slash-circle"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay filas de subvenciones_raw pendientes en esta cola.</div>
+        {% endif %}
+    </section>
+    {% elif tab == 'pelicula_tmdb' %}
+    <section class="work-panel">
+        <div class="work-panel-header">
+            <div class="work-panel-title"><i class="bi bi-badge-tm me-2"></i>Películas ICAA sin TMDB</div>
+            <span class="badge text-bg-light">{{ pelicula_tmdb_pending|length }} visibles</span>
+        </div>
+        {{ search_box('pelicula_tmdb') }}
+        {% if pelicula_tmdb_pending %}
+        <div class="table-wrap">
+            <table class="table matching-table">
+                <thead>
+                    <tr>
+                        <th>Expediente ICAA</th>
+                        <th>Título</th>
+                        <th>Año / director</th>
+                        <th>TMDB ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in pelicula_tmdb_pending %}
+                    <tr>
+                        <td>
+                            <a class="icaa-link" href="https://sede.mcu.gob.es/CatalogoICAA/es-es/Peliculas/Detalle?Pelicula={{ row.expediente_icaa }}" target="_blank" rel="noreferrer">
+                                {{ row.expediente_icaa }}
+                            </a>
+                        </td>
+                        <td><div class="name-main">{{ row.titulo }}</div></td>
+                        <td>{{ row.anio_produccion or 'n/d' }} &middot; <span class="text-muted">{{ row.director or 'n/d' }}</span></td>
+                        <td>
+                            <form class="person-form" action="{{ url_for('admin_matching_pelicula_tmdb_save') }}" method="post">
+                                <input type="hidden" name="token" value="{{ token }}">
+                                <input type="hidden" name="expediente_icaa" value="{{ row.expediente_icaa }}">
+                                <input class="form-control form-control-sm" type="number" name="tmdb_id" placeholder="TMDB ID" min="1">
+                                <input class="form-control form-control-sm" type="text" name="notas" placeholder="Notas">
+                                <button class="btn btn-sm btn-success btn-icon" name="action" value="save" title="Guardar (trae ficha completa)">
+                                    <i class="bi bi-check2"></i>
+                                </button>
+                                <button class="btn btn-sm btn-primary btn-icon" name="action" value="buscar" title="Buscar automáticamente en TMDB por título/año">
+                                    <i class="bi bi-magic"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary btn-icon" name="action" value="sin_tmdb" title="Sin ficha TMDB">
+                                    <i class="bi bi-slash-circle"></i>
+                                </button>
+                                <a class="btn btn-sm btn-outline-secondary btn-icon" title="Buscar a mano en TMDB" href="https://www.themoviedb.org/search?query={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
+                                    <i class="bi bi-search"></i>
+                                </a>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><i class="bi bi-check2-circle me-1"></i>No hay películas pendientes en esta cola.</div>
+        {% endif %}
+    </section>
     {% else %}
     <section class="work-panel">
         <div class="work-panel-header">
             <div class="work-panel-title"><i class="bi bi-camera-reels me-2"></i>Títulos anual_esp sin ficha ICAA</div>
             <span class="badge text-bg-light">{{ icaa_pending|length }} visibles</span>
         </div>
+        {{ search_box('icaa') }}
         {% if icaa_pending %}
         <div class="table-wrap">
             <table class="table matching-table">

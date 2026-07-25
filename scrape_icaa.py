@@ -22,14 +22,29 @@ USO (en el servidor Ubuntu)
 
   # En background para tandas largas:
   nohup python3 scrape_icaa.py --start 1 --end 200000 >> scrape_icaa.log 2>&1 &
+
+  # Lista explícita de expedientes (CSV con cabecera, un ID por fila):
+  python3 scrape_icaa.py --ids-file lista_expediente_icaa.csv --limit 300
+  # Se puede relanzar tantas veces como haga falta: los IDs ya guardados
+  # (en scrape_icaa o en icaa_fichas) o ya resueltos en scrape_icaa_lista_progress
+  # se saltan automáticamente, así que --limit trocea el trabajo en tandas
+  # seguras que se pueden cortar sin perder progreso.
+  #
+  # Algunos listados externos de expedientes vienen truncados: falta un
+  # sufijo "40" que sí lleva el expediente real en sede.mcu.gob.es
+  # (ej. listado "31182" → real "3118240"). Cuando el ID tal cual no
+  # devuelve ficha, se reintenta automáticamente con "40" al final antes
+  # de darlo por vacío.
 """
 
 import argparse
+import csv
 import json
 import logging
 import os
 import random
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -104,6 +119,18 @@ CREATE TABLE IF NOT EXISTS scrape_icaa_progress (
 );
 """
 
+# Seguimiento específico de --ids-file: independiente de scrape_icaa_progress
+# porque aquí un ID del listado puede resolverse bajo OTRO expediente real
+# (sufijo "40"). expediente_lista es lo que traía el CSV de origen.
+CREATE_LISTA_PROGRESS_SQL = """
+CREATE TABLE IF NOT EXISTS scrape_icaa_lista_progress (
+    expediente_lista     INTEGER PRIMARY KEY,
+    expediente_resuelto  TEXT,
+    encontrado           BOOLEAN NOT NULL,
+    checked_at           TIMESTAMP DEFAULT NOW()
+);
+"""
+
 
 def get_db():
     return psycopg2.connect(DB_DSN)
@@ -113,8 +140,9 @@ def crear_tablas(conn):
     with conn.cursor() as cur:
         cur.execute(CREATE_TABLE_SQL)
         cur.execute(CREATE_PROGRESS_SQL)
+        cur.execute(CREATE_LISTA_PROGRESS_SQL)
     conn.commit()
-    log.info("Tablas 'scrape_icaa' y 'scrape_icaa_progress' listas.")
+    log.info("Tablas 'scrape_icaa', 'scrape_icaa_progress' y 'scrape_icaa_lista_progress' listas.")
 
 
 def ids_ya_procesados(conn, start, end):
@@ -140,6 +168,77 @@ def ids_en_icaa_fichas(conn, start, end):
         return {int(row[0]) for row in cur.fetchall()}
 
 
+def leer_ids_file(path):
+    """Lee un CSV con cabecera y un expediente ICAA por fila. Deduplica preservando orden."""
+    vistos = set()
+    ids = []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        next(reader, None)  # cabecera
+        for row in reader:
+            if not row or not row[0].strip():
+                continue
+            try:
+                pid = int(row[0].strip())
+            except ValueError:
+                continue
+            if pid not in vistos:
+                vistos.add(pid)
+                ids.append(pid)
+    return ids
+
+
+def ids_en_lista(conn, tabla, ids):
+    """IDs de la lista que ya existen en la tabla dada (icaa_fichas o scrape_icaa)."""
+    if not ids:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT expediente_icaa FROM {tabla} "
+            "WHERE expediente_icaa ~ '^[0-9]+$' "
+            "AND expediente_icaa::int = ANY(%s)",
+            (ids,),
+        )
+        return {int(row[0]) for row in cur.fetchall()}
+
+
+def ids_procesados_en_lista(conn, ids):
+    """IDs de la lista ya marcados ok/empty en scrape_icaa_progress."""
+    if not ids:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pelicula_id FROM scrape_icaa_progress "
+            "WHERE status IN ('ok','empty') AND pelicula_id = ANY(%s)",
+            (ids,),
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
+def ids_resueltos_en_lista_progress(conn, ids):
+    """Expedientes-lista ya resueltos (encontrados o no) por una corrida previa de --ids-file."""
+    if not ids:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT expediente_lista FROM scrape_icaa_lista_progress WHERE expediente_lista = ANY(%s)",
+            (ids,),
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
+def estado_progreso_generico(conn, ids):
+    """Dict {pelicula_id: status} de scrape_icaa_progress para los IDs literales dados."""
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pelicula_id, status FROM scrape_icaa_progress WHERE pelicula_id = ANY(%s)",
+            (ids,),
+        )
+        return dict(cur.fetchall())
+
+
 def marcar_progreso(conn, pid, status):
     with conn.cursor() as cur:
         cur.execute(
@@ -147,6 +246,31 @@ def marcar_progreso(conn, pid, status):
             "VALUES (%s, %s, NOW()) "
             "ON CONFLICT (pelicula_id) DO UPDATE SET status = EXCLUDED.status, checked_at = NOW()",
             (pid, status),
+        )
+    conn.commit()
+
+
+def marcar_progreso_si_falta(conn, pid, status):
+    """Como marcar_progreso, pero sin pisar un status ya existente (para no mentir sobre un 'ok' previo)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO scrape_icaa_progress (pelicula_id, status, checked_at) "
+            "VALUES (%s, %s, NOW()) ON CONFLICT (pelicula_id) DO NOTHING",
+            (pid, status),
+        )
+    conn.commit()
+
+
+def marcar_lista_progreso(conn, expediente_lista, expediente_resuelto, encontrado):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO scrape_icaa_lista_progress "
+            "(expediente_lista, expediente_resuelto, encontrado, checked_at) "
+            "VALUES (%s, %s, %s, NOW()) "
+            "ON CONFLICT (expediente_lista) DO UPDATE SET "
+            "expediente_resuelto = EXCLUDED.expediente_resuelto, "
+            "encontrado = EXCLUDED.encontrado, checked_at = NOW()",
+            (expediente_lista, expediente_resuelto, encontrado),
         )
     conn.commit()
 
@@ -214,18 +338,91 @@ def descargar_ficha(session, pid):
             time.sleep(wait)
     return None, True  # agotados los reintentos: tratamos como fallo serio
 
+
+def obtener_html_con_reintento(session, pid, args):
+    """
+    Envuelve descargar_ficha con el manejo de bloqueo (403/429): pausa larga,
+    sesión nueva y un reintento. Devuelve (html|None, session, error_persistente).
+    """
+    html, fatal = descargar_ficha(session, pid)
+    if not fatal:
+        return html, session, False
+
+    log.warning("Pausa larga de %d min y sesión nueva…", LONG_PAUSE_SECONDS // 60)
+    session.close()
+    time.sleep(LONG_PAUSE_SECONDS)
+    session = nueva_sesion()
+    html, fatal = descargar_ficha(session, pid)
+    if fatal or html is None:
+        return None, session, True
+    return html, session, False
+
+
+def parsear_y_guardar(conn, args, pid, html):
+    """
+    Parsea el HTML de una ficha y la guarda en scrape_icaa (salvo --dry-run).
+    Devuelve (status, titulo) con status en {'ok', 'empty', 'error'}.
+
+    Con --no-save-html el fichero temporal se escribe en /tmp (fuera del
+    directorio del proyecto, que está montado como volumen compartido con el
+    macmini) en vez de en HTML_DIR, para no generar eventos de filesystem en
+    esa carpeta sincronizada por cada ficha descargada.
+    """
+    dest = (Path(tempfile.gettempdir()) if args.no_save_html else HTML_DIR) / f"{pid}.html"
+    dest.write_text(html, encoding="utf-8")
+    try:
+        datos = icaa_parser.parsear_html(dest)
+    except Exception as e:
+        log.error("ID %s → error de parseo: %s", pid, e)
+        if args.no_save_html and dest.exists():
+            dest.unlink()
+        return "error", None
+    finally:
+        if args.no_save_html and dest.exists():
+            dest.unlink()
+
+    if not datos:
+        if dest.exists() and not args.no_save_html:
+            dest.unlink()  # no acumular HTMLs vacíos
+        return "empty", None
+
+    if args.dry_run:
+        return "ok", datos["titulo"]
+
+    try:
+        guardar_ficha(conn, datos)
+        return "ok", datos["titulo"]
+    except Exception as e:
+        conn.rollback()
+        log.error("ID %s → error BBDD: %s", pid, e)
+        return "error", None
+
 # ─── Main ───────────────────────────────────────────────────────────────────────
 
 def parse_args():
     p = argparse.ArgumentParser(description="Barrido de fichas ICAA → tabla scrape_icaa")
-    p.add_argument("--start", type=int, required=True, help="Primer ID del rango")
-    p.add_argument("--end",   type=int, required=True, help="Último ID del rango (incluido)")
+    p.add_argument("--start", type=int, help="Primer ID del rango")
+    p.add_argument("--end",   type=int, help="Último ID del rango (incluido)")
+    p.add_argument("--ids-file", type=str, help=(
+        "CSV con cabecera y un expediente ICAA por fila. Alternativa a --start/--end "
+        "para procesar una lista concreta de IDs en vez de un rango."
+    ))
     p.add_argument("--delay",     type=float, default=3.0, help="Delay mínimo entre peticiones (s)")
     p.add_argument("--delay-max", type=float, default=6.0, help="Delay máximo entre peticiones (s)")
     p.add_argument("--limit", type=int, default=None, help="Procesar como máximo N IDs pendientes")
     p.add_argument("--dry-run", action="store_true", help="Descarga y parsea sin escribir en BBDD")
     p.add_argument("--no-save-html", action="store_true", help="No guardar el HTML en disco")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.ids_file:
+        if args.start is not None or args.end is not None:
+            p.error("--ids-file no se combina con --start/--end")
+    elif args.start is None or args.end is None:
+        p.error("hace falta --start y --end, o bien --ids-file")
+    return args
+
+
+DEFAULT_IDS_FILE_LIMIT = 300  # tanda segura por invocación cuando se usa --ids-file sin --limit
+SUFIJO_EXPEDIENTE_TRUNCADO = "40"  # ver docstring del módulo
 
 
 def main():
@@ -233,6 +430,14 @@ def main():
     HTML_DIR.mkdir(parents=True, exist_ok=True)
 
     conn = get_db()
+
+    if args.ids_file:
+        ejecutar_modo_lista(conn, args)
+    else:
+        ejecutar_modo_rango(conn, args)
+
+
+def ejecutar_modo_rango(conn, args):
     en_icaa = ids_en_icaa_fichas(conn, args.start, args.end)
     if not args.dry_run:
         crear_tablas(conn)
@@ -255,7 +460,6 @@ def main():
     peticiones = ok = vacios = errores = 0
 
     for n, pid in enumerate(pendientes, 1):
-        # Renovación periódica de sesión
         if peticiones and peticiones % SESSION_REFRESH == 0:
             log.info("Renovando sesión tras %d peticiones…", peticiones)
             session.close()
@@ -263,25 +467,18 @@ def main():
             session = nueva_sesion()
 
         log.info("[%d/%d] Probando ID %d…", n, total, pid)
-        html, fatal = descargar_ficha(session, pid)
+        html, session, error_persistente = obtener_html_con_reintento(session, pid, args)
         peticiones += 1
 
-        if fatal:
-            log.warning("Pausa larga de %d min y sesión nueva…", LONG_PAUSE_SECONDS // 60)
-            session.close()
-            time.sleep(LONG_PAUSE_SECONDS)
-            session = nueva_sesion()
-            html, fatal = descargar_ficha(session, pid)
-            if fatal or html is None:
-                log.error("[%d/%d] ID %d → ERROR persistente", n, total, pid)
-                if not args.dry_run:
-                    marcar_progreso(conn, pid, "error")
-                errores += 1
-                time.sleep(random.uniform(args.delay, args.delay_max))
-                continue
+        if error_persistente:
+            log.error("[%d/%d] ID %d → ERROR persistente", n, total, pid)
+            if not args.dry_run:
+                marcar_progreso(conn, pid, "error")
+            errores += 1
+            time.sleep(random.uniform(args.delay, args.delay_max))
+            continue
 
         if html is None:
-            # 404: no existe
             if not args.dry_run:
                 marcar_progreso(conn, pid, "empty")
             vacios += 1
@@ -289,44 +486,22 @@ def main():
             time.sleep(random.uniform(args.delay, args.delay_max))
             continue
 
-        # Guardar HTML y parsear con el parser existente (mismos campos)
-        dest = HTML_DIR / f"{pid}.html"
-        dest.write_text(html, encoding="utf-8")
-        try:
-            datos = icaa_parser.parsear_html(dest)
-        except Exception as e:
-            log.error("[%d/%d] ID %d → error de parseo: %s", n, total, pid, e)
-            datos = None
-            if not args.dry_run:
-                marcar_progreso(conn, pid, "error")
-            errores += 1
-        finally:
-            if args.no_save_html and dest.exists():
-                dest.unlink()
-
-        if datos:
-            if args.dry_run:
-                log.info("[%d/%d] ID %d → %s (dry-run, no guardado)", n, total, pid, datos["titulo"])
-            else:
-                try:
-                    guardar_ficha(conn, datos)
-                    marcar_progreso(conn, pid, "ok")
-                    log.info("[%d/%d] ID %d → 💾 %s", n, total, pid, datos["titulo"])
-                except Exception as e:
-                    conn.rollback()
-                    log.error("[%d/%d] ID %d → error BBDD: %s", n, total, pid, e)
-                    marcar_progreso(conn, pid, "error")
-                    errores += 1
-                    time.sleep(random.uniform(args.delay, args.delay_max))
-                    continue
+        status, titulo = parsear_y_guardar(conn, args, pid, html)
+        if status == "ok":
             ok += 1
-        elif datos is None and not args.dry_run:
-            # Página sin ficha válida (sin título): ID vacío
-            marcar_progreso(conn, pid, "empty")
+            suffix = " (dry-run, no guardado)" if args.dry_run else ""
+            log.info("[%d/%d] ID %d → 💾 %s%s", n, total, pid, titulo, suffix)
+            if not args.dry_run:
+                marcar_progreso(conn, pid, "ok")
+        elif status == "empty":
             vacios += 1
             log.info("[%d/%d] ID %d → sin ficha válida", n, total, pid)
-            if dest.exists() and not args.no_save_html:
-                dest.unlink()  # no acumular HTMLs vacíos
+            if not args.dry_run:
+                marcar_progreso(conn, pid, "empty")
+        else:
+            errores += 1
+            if not args.dry_run:
+                marcar_progreso(conn, pid, "error")
 
         time.sleep(random.uniform(args.delay, args.delay_max))
 
@@ -336,6 +511,136 @@ def main():
     print(f"  Fichas guardadas      : {ok}")
     print(f"  IDs vacíos/404        : {vacios}")
     print(f"  Errores               : {errores}")
+    if args.dry_run:
+        print("\n  [dry-run] Nada escrito en BBDD.")
+
+
+def ejecutar_modo_lista(conn, args):
+    ids_lista = leer_ids_file(args.ids_file)
+    en_icaa = ids_en_lista(conn, "icaa_fichas", ids_lista)
+    en_scrape = ids_en_lista(conn, "scrape_icaa", ids_lista)
+    if not args.dry_run:
+        crear_tablas(conn)
+        resueltos = ids_resueltos_en_lista_progress(conn, ids_lista)
+    else:
+        resueltos = set()
+
+    excluidos = resueltos | en_icaa | en_scrape
+    pendientes = [i for i in ids_lista if i not in excluidos]
+    limit = args.limit or DEFAULT_IDS_FILE_LIMIT
+    pendientes = pendientes[:limit]
+
+    # Si el ID literal ya está marcado 'empty' en el barrido genérico por rango,
+    # nos ahorramos esa primera petición y vamos directos al candidato +40.
+    estado_generico = estado_progreso_generico(conn, pendientes)
+
+    total = len(pendientes)
+    log.info(
+        "Lista %s: %d IDs totales, %d ya en icaa_fichas, %d ya en scrape_icaa, "
+        "%d ya resueltos en corridas previas, %d pendientes (tanda de %d).",
+        args.ids_file, len(ids_lista), len(en_icaa), len(en_scrape),
+        len(resueltos), total, limit,
+    )
+    if not total:
+        log.info("Nada pendiente en esta tanda.")
+        return
+
+    session = nueva_sesion()
+    peticiones = ok = derivados = vacios = errores = 0
+
+    for n, pid_lista in enumerate(pendientes, 1):
+        if peticiones and peticiones % SESSION_REFRESH == 0:
+            log.info("Renovando sesión tras %d peticiones…", peticiones)
+            session.close()
+            time.sleep(random.uniform(10, 20))
+            session = nueva_sesion()
+
+        candidatos = [pid_lista]
+        derivado_pid = int(f"{pid_lista}{SUFIJO_EXPEDIENTE_TRUNCADO}")
+        if estado_generico.get(pid_lista) == "empty":
+            # Ya sabemos que el ID literal no tiene ficha; probamos directo el derivado.
+            candidatos = [derivado_pid]
+        else:
+            candidatos.append(derivado_pid)
+
+        resultado_status, resultado_titulo, resultado_pid = None, None, None
+        error_persistente = False
+
+        for i, pid in enumerate(candidatos):
+            log.info("[%d/%d] Probando ID %d (expediente lista %d)…", n, total, pid, pid_lista)
+            html, session, fatal = obtener_html_con_reintento(session, pid, args)
+            peticiones += 1
+
+            if fatal:
+                error_persistente = True
+                if not args.dry_run:
+                    marcar_progreso(conn, pid, "error")
+                break
+
+            if html is None:
+                if not args.dry_run:
+                    marcar_progreso_si_falta(conn, pid, "empty")
+                if i < len(candidatos) - 1:
+                    time.sleep(random.uniform(args.delay, args.delay_max))
+                    continue
+                resultado_status = "empty"
+                break
+
+            status, titulo = parsear_y_guardar(conn, args, pid, html)
+            if status == "ok":
+                if not args.dry_run:
+                    marcar_progreso(conn, pid, "ok")
+                resultado_status, resultado_titulo, resultado_pid = "ok", titulo, pid
+                break
+            elif status == "empty":
+                if not args.dry_run:
+                    marcar_progreso_si_falta(conn, pid, "empty")
+                if i < len(candidatos) - 1:
+                    time.sleep(random.uniform(args.delay, args.delay_max))
+                    continue
+                resultado_status = "empty"
+            else:
+                if not args.dry_run:
+                    marcar_progreso(conn, pid, "error")
+                resultado_status = "error"
+                break
+
+        if error_persistente:
+            log.error("[%d/%d] expediente lista %d → ERROR persistente", n, total, pid_lista)
+            errores += 1
+            if not args.dry_run:
+                marcar_lista_progreso(conn, pid_lista, None, False)
+        elif resultado_status == "ok":
+            usado_sufijo = resultado_pid != pid_lista
+            etiqueta = f" (vía sufijo {SUFIJO_EXPEDIENTE_TRUNCADO})" if usado_sufijo else ""
+            suffix = " (dry-run, no guardado)" if args.dry_run else ""
+            log.info("[%d/%d] expediente lista %d → 💾 %s%s%s",
+                     n, total, pid_lista, resultado_titulo, etiqueta, suffix)
+            if usado_sufijo:
+                derivados += 1
+            ok += 1
+            if not args.dry_run:
+                marcar_lista_progreso(conn, pid_lista, str(resultado_pid), True)
+        elif resultado_status == "empty":
+            vacios += 1
+            log.info("[%d/%d] expediente lista %d → sin ficha (ni literal ni +%s)",
+                      n, total, pid_lista, SUFIJO_EXPEDIENTE_TRUNCADO)
+            if not args.dry_run:
+                marcar_lista_progreso(conn, pid_lista, None, False)
+        else:
+            errores += 1
+            if not args.dry_run:
+                marcar_lista_progreso(conn, pid_lista, None, False)
+
+        time.sleep(random.uniform(args.delay, args.delay_max))
+
+    conn.close()
+    print(f"\n{'='*55}")
+    print(f"  Pendientes procesados       : {total}")
+    print(f"  Fichas guardadas            : {ok}")
+    print(f"    · resueltas vía sufijo +{SUFIJO_EXPEDIENTE_TRUNCADO} : {derivados}")
+    print(f"  Sin ficha (ni literal ni +{SUFIJO_EXPEDIENTE_TRUNCADO}) : {vacios}")
+    print(f"  Errores                     : {errores}")
     if args.dry_run:
         print("\n  [dry-run] Nada escrito en BBDD.")
 

@@ -109,6 +109,91 @@ Los IDs de la tabla puente pueden existir en el catálogo oficial del ICAA aunqu
 
 ---
 
+## Fuentes oficiales y tabla `subvenciones_raw`
+
+Además de los CSV editables descritos arriba, la base de datos tiene una tabla auxiliar **`subvenciones_raw`** con el detalle película a película de las ayudas a la producción, cubriendo **2006–2025** (2055 registros). Es la fuente de referencia de la que se derivan (o se corrigen) los datos anuales que consumen `subvenciones_historico.csv` y `subvenciones_agregadas.csv`.
+
+### Esquema
+
+```sql
+CREATE TABLE subvenciones_raw (
+    id SERIAL PRIMARY KEY,
+    anio INTEGER,
+    tipo_ayuda TEXT,
+    titulo TEXT,
+    importe_ayuda FLOAT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_updated TIMESTAMP DEFAULT NOW()
+);
+```
+
+`tipo_ayuda` toma valores como `generales`, `selectivas` y `amortizacion`, análogos a las categorías usadas en el resto del pipeline de subvenciones.
+
+### Metodología de dos fuentes según el año
+
+Los datos de `subvenciones_raw` combinan **dos fuentes distintas** según el año, priorizando siempre la más detallada disponible:
+
+**2006–2017 → Memorias/Anuarios de ayudas a la cinematografía (fuente procesada).**
+El ICAA publica anualmente una "Memoria de ayudas a la cinematografía" en PDF, con doce secciones por año (presentación y presupuesto, ayudas generales y selectivas a largometrajes, cortometrajes, distribución, festivales, salas de exhibición, laboratorios, transferencias corrientes, subvenciones nominativas, resumen por empresa). Para estos años **no existe** una página de resolución oficial navegable con el mismo nivel de detalle que a partir de 2018, así que se usa el desglose ya procesado de estos PDFs.
+
+Enlaces de referencia (estructura de las memorias, común a todos los años del periodo):
+- [Presentación y presupuesto](https://www.cultura.gob.es/dam/jcr:a6996342-349d-4c0a-bbd5-220a39447a7c/1-presentacion-presupuesto.pdf)
+- [Ayudas generales a la producción de largometrajes sobre proyecto](https://www.cultura.gob.es/dam/jcr:444f9499-aded-4c59-9374-58ba3b23057f/2-prodlargoggenerales.pdf)
+- [Ayudas selectivas a la producción de largometrajes sobre proyecto](https://www.cultura.gob.es/dam/jcr:30879fe3-2bb7-426a-817b-ffca909f6325/3-prodlargoselectivas.pdf)
+- [Ayudas a la producción de cortometrajes sobre proyecto](https://www.cultura.gob.es/dam/jcr:68b6a65c-8173-42db-beac-837f303f5fa2/4-cortorpoyecto.pdf)
+- [Ayudas a cortometrajes realizados](https://www.cultura.gob.es/dam/jcr:df273f20-7e49-4b81-8aca-09af498dc385/5-cortosrealizados.pdf)
+- [Ayudas a la distribución de películas españolas, comunitarias e iberoamericanas](https://www.cultura.gob.es/dam/jcr:d28b6eed-4ec0-4138-b5fd-76e3a3cc8479/6-distribucion.pdf)
+- [Ayudas a festivales](https://www.cultura.gob.es/dam/jcr:5e4dac6a-939f-4294-b088-dc785ee1c439/7-festivales.pdf)
+- [Ayudas de concesión directa para titulares de salas de exhibición cinematográfica](https://www.cultura.gob.es/dam/jcr:cd658ac6-eaa4-44af-9951-d74ac05f1a87/8-salas-de-exhibicion.pdf)
+- [Ayudas para laboratorios e incubadoras de creación y desarrollo de proyectos audiovisuales](https://www.cultura.gob.es/dam/jcr:dc50a54e-7c4e-4777-ad99-8a54602214c4/9-laboratorios.pdf)
+- [Transferencias corrientes](https://www.cultura.gob.es/dam/jcr:4e414ff2-d2a3-4551-a645-98aa5c86faef/10-transferencias-corrientes.pdf)
+- [Subvenciones nominativas y de concesión directa](https://www.cultura.gob.es/dam/jcr:4cfb23e6-084c-4894-bcba-60a0fa11efd6/11-subvenciones-nominativas-concesion-directa.pdf)
+- [Resumen de ayudas obtenidas por las empresas](https://www.cultura.gob.es/dam/jcr:69416a2a-a759-432e-90a8-27362601e9cf/12-resumen-ayudas.pdf)
+
+La página que agrupa las memorias cubre en origen 2006–2023, pero en `subvenciones_raw` solo se usa hasta **2017 inclusive**: a partir de 2018 se prioriza la fuente oficial por tener mayor detalle (ver siguiente punto).
+
+**2018 en adelante → Resoluciones oficiales del Ministerio de Cultura (fuente primaria).**
+Desde 2018 se usa directamente la página de [ayudas a la producción](https://www.cultura.gob.es/cultura/areas/cine/ayudas/produccion.html) del Ministerio, que publica una ficha de resolución por año y modalidad con el detalle completo de cada expediente:
+
+- [Ayudas generales para la producción de largometrajes sobre proyecto](https://www.cultura.gob.es/cultura/areas/cine/ayudas/produccion/generales.html) — ayudas anticipadas por criterios objetivos. Fichas anuales: [2025](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2025.html), [2024](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2024.html), [2023](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2023.html), [2022](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2022.html), [2021](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2021.html), [2020](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2020.html), [2019](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/20/202995/ficha/202995-2019.html) (2026 en curso, plazo de solicitud abierto).
+- [Ayudas selectivas para la producción de largometrajes sobre proyecto](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790.html) — ayudas a empresas productoras independientes con valor cinematográfico, cultural o social especial (documental, experimental o nuevos realizadores), previo informe del órgano colegiado. Fichas anuales: [2025](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2025.html), [2024](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2024.html), [2023](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2023.html), [2022](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2022.html), [2021](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2021.html), [2020](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2020.html), [2019](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2019.html), [2018](https://www.cultura.gob.es/servicios-a-la-ciudadania/catalogo/general/05/051790/ficha/051790-2018.html) (2026 pendiente de resolución).
+
+### Relación con el resto del pipeline
+
+`subvenciones_raw` es un volcado de trabajo/staging, no la tabla que consume la web directamente (esa sigue siendo `subvenciones`, ver más abajo). Se usa para: comparar/auditar los totales anuales de `subvenciones_agregadas.csv` y el detalle de `subvenciones_historico.csv`, y como base para futuras cargas hacia `subvenciones` cuando se complete el proceso de matching con `icaa_fichas`.
+
+### Matching `subvenciones_raw` × `scrape_icaa` × `subvenciones`
+
+Para vincular cada título de `subvenciones_raw` con su expediente ICAA se hizo un cruce en dos
+pasadas (normalización de título estilo `TITLE_NORM_SQL`, ver `docs/matching_web.md`):
+
+1. Título normalizado contra `scrape_icaa` → único candidato, varios candidatos ambiguos
+   (desempatados por año de producción más cercano) o ningún candidato.
+2. Para lo que no dio match único, cruce adicional contra `subvenciones` (que ya trae
+   `expediente_icaa` curado en ~474 filas) — se comprobó que cuando esta fuente está disponible,
+   discrepa siempre del candidato elegido solo por año, así que se prioriza sobre el heurístico.
+
+De los 1988 títulos distintos, esto deja ~612 sin resolver de forma fiable (ambiguos sin
+confirmar y sin ningún candidato) que requieren revisión manual.
+
+**Herramienta de revisión: artifact "Matching subvenciones_raw × scrape_icaa × subvenciones"**
+
+Es una página HTML autocontenida publicada en claude.ai (no vive en el repo ni en el servidor),
+con una tabla por categoría (match único, ambiguo resuelto por subvenciones, ambiguo resuelto
+por año, ambiguo sin resolver, sin match resuelto por subvenciones, sin match definitivo),
+buscador y orden por columna. Las tres categorías sin resolución fiable tienen un campo de
+texto para teclear el expediente ICAA correcto (o marcarlo como "sin ficha" si se confirma que
+no existe), y un botón "Generar SQL" que produce los `INSERT ... ON CONFLICT` listos para
+`subvenciones_icaa_matches`.
+
+- Las ediciones se guardan en el `localStorage` del navegador (por dispositivo/perfil, no
+  sincronizado) — el SQL generado hay que copiarlo o descargarlo y aplicarlo a mano contra la
+  base de datos; el artifact no escribe directo en Postgres.
+- URL: (privada, pedir enlace en la conversación donde se creó; se puede seguir actualizando en
+  el mismo enlace en conversaciones futuras).
+
+---
+
 ## Lógica de fusión de datos
 
 `get_subvenciones_historico()` devuelve una lista `chart_data` donde cada elemento es un diccionario con todos los valores de un año. El conjunto de años cubiertos es la **unión** de los años presentes en los cuatro CSV:

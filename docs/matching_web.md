@@ -1,152 +1,181 @@
-# Página de resolución de matching
+# Guía de matching — `/admin/matching`
 
-> Documentación técnica de la ruta `/admin/matching`.
-> Última actualización: mayo 2026.
-
----
-
-## Objetivo
-
-La página de **Resolución de Matching** permite corregir desde la web algunos de los joins por nombre que antes requerían scripts o SQL manual:
-
-1. Títulos de `anual_esp` que todavía no están vinculados con una ficha de `icaa_fichas`.
-2. Títulos de `subvenciones` que todavía no tienen una ficha ICAA asociada.
-3. Personas de `tmdb_gente` cuyo match automático con TMDB necesita revisión.
-
-El MVP no sustituye todavía todo el sistema de matching del proyecto. Su objetivo es concentrar en una interfaz operativa las dos colas de revisión manual más frecuentes, reducir trabajo por terminal y dejar una base sobre la que ampliar aliases y decisiones reutilizables.
+> Documentación de la herramienta de resolución manual de matchings.
+> Última actualización: julio 2026.
 
 ---
 
-## Ruta y acceso
+## Qué es esto y por qué existe
+
+El proyecto cruza datos de varias fuentes independientes (ICAA, TMDB, Comscore,
+subvenciones) que no comparten un identificador común — solo el **título de la
+película** o el **nombre de la persona**, escritos de forma ligeramente distinta
+en cada sitio (acentos, artículos al final tipo "Tribu, La", mayúsculas,
+apodos...). El cruce automático por título normalizado resuelve la mayoría de
+los casos, pero deja un resto que necesita ojo humano: títulos ambiguos
+(varias películas con el mismo nombre), títulos que cambiaron entre el
+proyecto y el estreno, o nombres de actor/director escritos de formas distintas.
+
+`/admin/matching` es la página donde se revisan y corrigen esos casos a mano,
+sin tocar terminal ni SQL. Está pensada para que cualquiera (no solo quien
+programó esto) pueda sentarse, buscar una película o persona concreta, y
+decirle al sistema "esto es el expediente X" o "esto no tiene ficha".
+
+---
+
+## Acceso
 
 ```text
 GET /admin/matching
 ```
 
-La ruta está implementada en `webapp/app.py` y renderiza la plantilla:
-
-```text
-webapp/templates/admin_matching.html
-```
-
-### Protección opcional
-
-Si se define la variable de entorno `MATCHING_ADMIN_TOKEN`, la página y sus formularios requieren un token compartido:
-
-```bash
-export MATCHING_ADMIN_TOKEN="un-token-largo"
-```
-
-En ese caso se accede con:
-
-```text
-/admin/matching?token=un-token-largo
-```
-
-Si la variable no está configurada, la página queda accesible sin token. Como la ruta permite escrituras en base de datos, conviene definirla en entornos expuestos.
+Si está definida la variable de entorno `MATCHING_ADMIN_TOKEN`, hace falta
+añadir `?token=...` a la URL (o al `token` oculto de cada formulario, que ya
+viaja solo). Si no está definida, la página es accesible sin token — pero como
+permite escribir en la base de datos, en un entorno expuesto a internet
+conviene tenerla puesta.
 
 ---
 
-## Estructura de la interfaz
+## Cómo ayudar con matchings — guía rápida
 
-La página tiene dos pestañas:
+Si alguien te pide "échame una mano revisando matchings", esto es lo que
+necesitas saber, sin entrar en el código:
 
-| Pestaña | Fuente | Finalidad |
-|---|---|---|
-| `Películas ICAA` | `anual_esp` + `icaa_fichas` | Resolver títulos sin ficha ICAA asociada |
-| `Subvenciones ICAA` | `subvenciones` + `subvenciones_icaa_matches` | Vincular títulos históricos de subvenciones con expedientes ICAA |
-| `Personas TMDB` | `tmdb_gente` | Revisar personas con match dudoso, sin ID o sin foto |
+1. Abre `/admin/matching`. Verás 5 pestañas arriba, cada una con un contador
+   de cuántos casos están pendientes de revisar.
+2. Entra en la pestaña que te toque revisar (te lo dirán, o empieza por la que
+   tenga más pendientes).
+3. **Si buscas una película o persona concreta**: usa el buscador que hay
+   arriba de cada tabla, escribe parte del título/nombre y pulsa "Buscar". Esto
+   te deja revisar o corregir un caso puntual aunque no esté en la lista por
+   defecto (por ejemplo, si ya tiene un candidato claro y quieres comprobarlo
+   o corregirlo de todos modos).
+4. Para cada fila, tienes casi siempre:
+   - Un enlace de ayuda para buscar la ficha en el catálogo oficial (ICAA o
+     TMDB), que abre en pestaña nueva.
+   - Un campo de texto donde escribir el ID correcto (expediente ICAA o TMDB
+     ID, según la pestaña).
+   - Un botón verde (✓) para guardar.
+   - Un botón gris ("sin ficha ICAA" / "sin TMDB") para los casos donde
+     confirmas que **no existe** ficha — así no te lo vuelve a preguntar.
+5. Rellena el campo y pulsa guardar. La página se recarga con un mensaje de
+   confirmación y la fila desaparece de la cola.
 
-En la parte superior se muestran contadores de elementos visibles en cada cola.
-Los contadores son enlaces y llevan directamente a la pestaña correspondiente.
+**Importante:** si no estás seguro de un caso, mejor dejarlo sin tocar que
+adivinar. Un expediente/ID incorrecto es peor que uno pendiente — luego es
+más difícil de detectar.
+
+---
+
+## Las 5 pestañas
+
+| Pestaña | Qué resuelve | Tabla de origen | Tabla puente |
+|---|---|---|---|
+| **Películas ICAA** | Títulos de `anual_esp` (resúmenes anuales de cine español, se actualiza cada año) sin ficha ICAA | `anual_esp` | columna `titulo_anual_esp` en `icaa_fichas` |
+| **Personas TMDB** | Actores/directores con match TMDB dudoso, sin ID o sin foto | `tmdb_gente` | la propia `tmdb_gente` |
+| **Subvenciones ICAA** | Títulos de `subvenciones` sin expediente ICAA | `subvenciones` | `subvenciones_icaa_matches` (por título) |
+| **Subvenciones (raw)** | Filas de `subvenciones_raw` sin expediente ICAA | `subvenciones_raw` | `subvenciones_raw_icaa_matches` (por `id`) |
+| **Películas TMDB** | Fichas de `icaa_fichas` sin `tmdb_id` vinculado | `icaa_fichas` | `pelicula_tmdb_match` (por `expediente_icaa`) |
+
+Ninguna de estas pestañas modifica las tablas de origen (`anual_esp`,
+`subvenciones`, `subvenciones_raw`, `icaa_fichas`, `scrape_icaa`, `tmdb_gente`
+en su rol de catálogo): todo lo que se decide manualmente se guarda en una
+tabla puente aparte. Esto es deliberado — las tablas de origen son volcados
+reproducibles de cada fuente (scraping, importación de CSV...) y no deben
+llevar mezclado el juicio manual de matching.
+
+### Buscador y filtro por dificultad
+
+Todas las pestañas tienen un buscador de título/nombre en la parte superior
+de la tabla. Busca solo dentro de esa pestaña — no afecta a las demás.
+
+La pestaña **Subvenciones (raw)** además calcula, para cada fila pendiente,
+cuántos candidatos hay en `icaa_fichas` + `scrape_icaa` con el mismo título
+normalizado:
+
+- **0 candidatos** → badge rojo "sin candidato". Nadie ha encontrado nada
+  parecido; puede que la ficha no esté todavía en el catálogo, o que el
+  título cambiara mucho entre el proyecto subvencionado y el estreno (ver
+  más abajo).
+- **1 candidato** → badge verde "único". Ya está prácticamente resuelto — por
+  eso **se oculta por defecto**, para no hacerte revisar cientos de casos que
+  el sistema ya tiene claros. El campo del formulario viene precargado con
+  ese candidato: solo hace falta pulsar guardar para confirmarlo.
+- **2 o más candidatos** → badge amarillo "N ambiguos". Título genérico
+  reutilizado por varias películas a lo largo de los años (ej. "MADRE",
+  "FUEGO", "EL VIAJE"). Aquí sí hace falta mirar a mano cuál es la correcta
+  — el enlace al catálogo ICAA ayuda a comparar por año/director.
+
+Para ver también los de candidato único (por ejemplo, para revisarlos en
+bloque o hacer una auditoría), hay un botón "Mostrar también los de
+candidato único" encima de la tabla. Al buscar por título (`q`), este filtro
+se desactiva automáticamente — la búsqueda siempre te deja ver cualquier fila,
+esté resuelta o no.
 
 ---
 
 ## 1. Películas ICAA
 
-### Qué muestra
+Cola: títulos de `anual_esp` sin ficha ICAA asociada (ni por
+`icaa_fichas.titulo_anual_esp` ni por título normalizado).
 
-La cola lista títulos de `anual_esp` que todavía no tienen correspondencia en `icaa_fichas`.
+Al guardar un expediente ICAA, la ruta `POST /admin/matching/icaa` hace un
+`INSERT ... ON CONFLICT` sobre `icaa_fichas` guardando
+`titulo_anual_esp = título original de anual_esp`, para que el join futuro
+funcione aunque el título oficial y el de `anual_esp` sean distintos.
 
-Cada fila muestra:
-
-- título original;
-- título normalizado;
-- fecha de estreno;
-- impacto aproximado por recaudación y espectadores;
-- campo para introducir el expediente ICAA correcto;
-- enlace directo al buscador del catálogo ICAA.
-
-### Cómo decide si un título está pendiente
-
-La query usa la misma lógica de normalización ya documentada en `docs/correcciones_manuales_icaa.md`:
-
-- elimina artículos finales tras coma;
-- elimina texto entre paréntesis;
-- pasa a minúsculas;
-- elimina tildes;
-- quita artículos iniciales.
-
-Un título queda fuera de la cola si:
-
-1. ya existe un `icaa_fichas.titulo_anual_esp` igual al título de `anual_esp`; o
-2. el título normalizado coincide con `icaa_fichas.titulo`.
-
-### Qué hace la acción de guardar
-
-Al introducir un ID ICAA y guardar, la ruta:
-
-```text
-POST /admin/matching/icaa
-```
-
-ejecuta un `INSERT ... ON CONFLICT` sobre `icaa_fichas` y guarda:
-
-```text
-titulo_anual_esp = título original de anual_esp
-```
-
-Esto permite que los joins posteriores funcionen aunque el título oficial del ICAA y el título de `anual_esp` sean diferentes.
-
-Además, al cargar la página se asegura que exista la columna e índice necesarios:
-
-```sql
-ALTER TABLE icaa_fichas
-ADD COLUMN IF NOT EXISTS titulo_anual_esp TEXT;
-
-CREATE INDEX IF NOT EXISTS icaa_titulo_anual_esp_idx
-ON icaa_fichas (titulo_anual_esp);
-```
-
-### Relación con el flujo previo
-
-Esta pestaña cubre desde la web el caso de uso básico que antes se resolvía con:
-
-```bash
-python3 icaa_manual_map.py --titulo "Titulo exacto, El" --icaa-id 98765
-```
-
-El script sigue siendo útil para operaciones más avanzadas, especialmente `--fetch` y corrección de IDs erróneos con `--fix-id`.
+`anual_esp` se sigue actualizando cada año por el pipeline normal (no forma
+parte de este flujo de matching); esta pestaña solo consume esa tabla como
+fuente de la cola pendiente.
 
 ---
 
-## 2. Subvenciones ICAA
+## 2. Personas TMDB
 
-### Qué muestra
+Cola: filas de `tmdb_gente` con `revisado_manual = FALSE` y algún síntoma de
+match dudoso (`tmdb_id` nulo, sin foto, sin score, o score bajo).
 
-La cola lista títulos distintos de `subvenciones` que no tienen expediente ICAA asociado ni en la propia tabla ni en la tabla puente manual.
+Acciones (`POST /admin/matching/persona`):
 
-Cada fila muestra:
+| Acción | Efecto |
+|---|---|
+| Guardar con TMDB ID | Actualiza el ID, marca `revisado_manual = TRUE` |
+| Guardar sin ID | Marca la fila como revisada tal cual está |
+| "Sin ficha TMDB" | Deja `tmdb_id = NULL` y marca revisado |
 
-- título tal como aparece en las memorias de subvenciones;
-- primer y último año de ayuda;
-- importe acumulado;
-- número de filas de subvención agrupadas bajo ese título;
-- campo para introducir el expediente ICAA correcto.
+### Añadir variante de nombre (alias)
 
-### Tabla puente
+Debajo de la cola hay un formulario aparte: **"Añadir variante de nombre"**.
+Es para cuando el mismo actor/director aparece escrito de forma distinta en
+ICAA (ej. `"PEDRO ALMODOVAR"` en una ficha y `"Pedro Almodóvar C."` en otra) y
+ya sabes a qué persona de TMDB corresponde. En vez de esperar a que esa
+variante concreta aparezca en la cola de pendientes, la das de alta
+directamente: nombre ICAA nuevo + TMDB ID ya conocido.
 
-La relación manual se guarda en:
+Esto funciona porque `tmdb_gente.tmdb_id` ya **no** tiene restricción de
+unicidad — varias filas (variantes de nombre) pueden apuntar al mismo
+`tmdb_id`. Si en el futuro se separa la ficha "rica" de la persona (biografía,
+foto...) en una tabla canónica aparte (`personas_tmdb`) y `tmdb_gente` pasa a
+ser solo la tabla de alias, este formulario seguirá funcionando igual.
+
+Después de corregir IDs a mano sigue haciendo falta reejecutar el importador
+para refrescar biografía/foto:
+
+```bash
+python3 tmdb_gente_importer.py --tipo director --skip-existing
+python3 tmdb_gente_importer.py --tipo actor --skip-existing
+```
+
+El importador respeta `revisado_manual` y no pisa las correcciones hechas
+desde la web.
+
+---
+
+## 3. Subvenciones ICAA
+
+Cola: títulos distintos de `subvenciones` sin expediente ICAA (ni en la
+propia tabla ni en `subvenciones_icaa_matches`).
 
 ```sql
 CREATE TABLE subvenciones_icaa_matches (
@@ -157,129 +186,166 @@ CREATE TABLE subvenciones_icaa_matches (
 );
 ```
 
-La clave del lado de subvenciones es el título original, no un título normalizado. Así se conserva el literal de la fuente y se deja explícito qué variante histórica fue revisada.
+La clave es el título literal (no normalizado), para conservar la variante
+histórica exacta que se revisó. `expediente_icaa` no tiene FK contra
+`icaa_fichas`: puede ser un ID oficial del catálogo ICAA que todavía no está
+importado localmente.
 
-`expediente_icaa` **no tiene FK contra `icaa_fichas`**: `icaa_fichas` es un subset local de películas y las memorias históricas de subvenciones pueden referirse a expedientes oficiales que todavía no están importados en esa tabla.
-
-### Qué hace la acción de guardar
-
-La ruta:
-
-```text
-POST /admin/matching/subvenciones
-```
-
-hace un upsert directo en `subvenciones_icaa_matches`. El ID se considera un identificador oficial externo del catálogo ICAA, aunque todavía no haya una ficha local en `icaa_fichas`.
-
-La página `/subvenciones-historico` usa:
-
-```sql
-COALESCE(m.expediente_icaa, s.expediente_icaa)
-```
-
-para mostrar el enlace a la ficha ICAA. El mapping manual tiene prioridad sobre el valor presente en `subvenciones`, si lo hubiera.
-
-Si el expediente existe también en `icaa_fichas`, la tabla histórica enlaza a `/pelicula/<id>`. Si solo existe como ID oficial externo, enlaza al detalle del catálogo ICAA en la web del Ministerio.
+**Ojo:** esta tabla usa el título como clave, así que si dos filas de
+`subvenciones` compartieran el mismo título pero fueran películas distintas,
+el match se aplicaría a ambas por igual. Para `subvenciones_raw` este
+problema se solucionó con una tabla puente por `id` (ver siguiente sección) —
+`subvenciones` en sí sigue usando título porque es una tabla más antigua y
+más pequeña, sin ese caso detectado todavía.
 
 ---
 
-## 3. Personas TMDB
+## 4. Subvenciones (raw)
 
-### Qué muestra
+Cola: filas de `subvenciones_raw` (id + título + año + tipo de ayuda +
+importe) sin expediente ICAA.
 
-La cola lista filas de `tmdb_gente` con `revisado_manual = FALSE` y alguno de estos síntomas:
-
-- `tmdb_id IS NULL`;
-- `foto_url IS NULL`;
-- `match_score IS NULL`;
-- `match_score < 0.75`.
-
-Cada fila muestra:
-
-- nombre ICAA;
-- match TMDB actual, si existe;
-- roles acumulados (`director`, `actor`);
-- score;
-- formulario de corrección.
-
-### Acciones disponibles
-
-La ruta:
-
-```text
-POST /admin/matching/persona
+```sql
+CREATE TABLE subvenciones_raw_icaa_matches (
+    subvenciones_raw_id INTEGER PRIMARY KEY REFERENCES subvenciones_raw(id),
+    expediente_icaa     TEXT,
+    sin_ficha           BOOLEAN NOT NULL DEFAULT FALSE,
+    notas               TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_subv_raw_expediente_o_sin_ficha CHECK (expediente_icaa IS NOT NULL OR sin_ficha)
+);
 ```
 
-permite tres decisiones:
+Por qué por `id` y no por título: en `subvenciones_raw` un mismo título puede
+aparecer en más de una fila — porque la misma película recibió dos ayudas en
+años distintos, o porque dos películas distintas comparten título (ej. "UN
+AMOR", que existen dos, de 2011 y 2023). Con el título como clave no se puede
+distinguir esos casos; con el `id` de cada fila, sí.
+
+`POST /admin/matching/subvenciones_raw` acepta:
+
+- `action=save` + `expediente_icaa` → guarda el match.
+- `action=sin_ficha` → marca `sin_ficha = TRUE`, `expediente_icaa = NULL`.
+  Sirve para descartar de forma permanente un caso sin ficha conocida (por
+  ejemplo, títulos de proyecto que se abandonaron antes de rodarse), sin que
+  vuelva a aparecer en la cola.
+
+### El problema de los títulos que cambian en rodaje
+
+Un caso que **este sistema no puede resolver solo con título**: una película
+puede figurar en la subvención con su título de proyecto y estrenarse con
+otro completamente distinto (ej. `"AJEDREZ PARA TRES"` → `"¿QUÉ TE JUEGAS?"`).
+Ningún matching por texto va a encontrar eso — no comparten palabras. Se
+comprobó además que las resoluciones oficiales del Ministerio no publican el
+expediente ICAA de calificación (solo título de proyecto + empresa + NIF), así
+que no hay ID compartido de origen para tirar de ahí automáticamente. Estos
+casos solo se resuelven con:
+
+- búsqueda manual (IMDb, prensa, el propio catálogo ICAA buscando por
+  director/año/productora), o
+- si se sabe la respuesta, escribiéndola directamente vía el buscador de esta
+  pestaña (busca el título de proyecto y guarda el expediente aunque el
+  candidato sugerido esté vacío).
+
+---
+
+## 5. Películas TMDB
+
+Cola: fichas de `icaa_fichas` (catálogo maestro) sin `tmdb_id` todavía.
+
+```sql
+CREATE TABLE pelicula_tmdb_match (
+    expediente_icaa TEXT PRIMARY KEY,
+    tmdb_id         INTEGER,
+    sin_tmdb        BOOLEAN NOT NULL DEFAULT FALSE,
+    match_score     NUMERIC(4,2),
+    fuente          TEXT,
+    verificado      BOOLEAN NOT NULL DEFAULT FALSE,
+    notas           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_pelicula_tmdb_o_sin_tmdb CHECK (tmdb_id IS NOT NULL OR sin_tmdb),
+    -- + columnas "ricas" (titulo_tmdb, sinopsis, poster_url, generos,
+    -- reparto_principal, director_tmdb, puntuacion_tmdb...) — mismos campos
+    -- que produce tmdb_enricher.py, añadidas con ALTER TABLE ADD COLUMN IF
+    -- NOT EXISTS en ensure_matching_schema().
+);
+```
+
+Es una tabla nueva — antes no existía ningún vínculo guardado entre
+`expediente_icaa` y una ficha de película en TMDB (la tabla `tmdb` existente
+está pensada para el ranking semanal de Comscore, se cruza por
+`(titulo, distribuidora)`, no por expediente).
+
+`POST /admin/matching/pelicula_tmdb` acepta tres acciones:
 
 | Acción | Efecto |
 |---|---|
-| Guardar con `tmdb_id` | Actualiza el ID, marca `revisado_manual = TRUE` y conserva o añade notas |
-| Guardar sin `tmdb_id` | Marca la fila como revisada |
-| `Sin ficha TMDB` | Deja `tmdb_id = NULL`, marca `revisado_manual = TRUE` y añade la nota por defecto `Confirmado: sin ficha TMDB` si no se escribió otra |
+| `action=buscar` | Busca automáticamente en TMDB por título + año (reutiliza `tmdb_enricher.buscar_pelicula`, mismo matcher que el pipeline semanal) y, si encuentra un candidato razonable, descarga la ficha completa (`tmdb_enricher.obtener_detalle_completo` + `extraer_metadatos`) y la guarda con `fuente='auto_busqueda'`, `verificado=FALSE` — queda para que alguien lo confirme |
+| `action=save` + `tmdb_id` | Descarga la ficha completa para ese ID exacto y la guarda con `fuente='manual'`, `verificado=TRUE`. Si la API de TMDB falla, igualmente guarda el vínculo del ID (sin los datos ricos) para no perder la decisión |
+| `action=sin_tmdb` | Marca `sin_tmdb=TRUE`, no vuelve a aparecer en la cola |
 
-### Importante
+El botón "🔍 Buscar en TMDB" de cada fila dispara `action=buscar`. El enlace
+externo a `themoviedb.org/search` sigue ahí para cuando el automático no
+encuentra nada y toca localizar el ID a mano.
 
-Guardar un `tmdb_id` correcto no rellena por sí solo toda la ficha biográfica ni descarga fotos nuevas. Después de corregir IDs manualmente sigue siendo necesario reejecutar el importador para refrescar datos:
+`buscar_pelicula()` usa `solo_espanol=True` en esta pestaña (a diferencia del
+pipeline de Comscore, aquí todas las fichas vienen de `icaa_fichas`, que por
+definición son producciones españolas) — descarta candidatos que no sean de
+producción española o que sean cortometrajes de menos de 40 minutos.
+
+---
+
+## Funciones y rutas principales (`webapp/app.py`)
+
+| Función / ruta | Responsabilidad |
+|---|---|
+| `ensure_matching_schema()` | Crea/asegura todas las tablas puente e índices de esta página, y quita el `UNIQUE(tmdb_id)` de `tmdb_gente` |
+| `get_icaa_matching_pending(limit, q)` | Cola de `anual_esp` sin ficha ICAA |
+| `get_tmdb_people_pending(limit, q)` | Cola de personas TMDB dudosas |
+| `get_subvenciones_matching_pending(limit, q)` | Cola de `subvenciones` sin ficha ICAA |
+| `get_subvenciones_raw_matching_pending(limit, q, solo_dificiles)` | Cola de `subvenciones_raw` sin ficha ICAA, con recuento de candidatos y filtro de dificultad |
+| `get_pelicula_tmdb_pending(limit, q)` | Cola de `icaa_fichas` sin TMDB |
+| `require_matching_admin()` | Aplica el token opcional |
+| `admin_matching()` | Renderiza la página, lee `tab`, `q`, `todos` de la URL |
+| `admin_matching_icaa_save()` | `POST /admin/matching/icaa` |
+| `admin_matching_persona_save()` | `POST /admin/matching/persona` |
+| `admin_matching_persona_alias_save()` | `POST /admin/matching/persona/alias` |
+| `admin_matching_subvenciones_save()` | `POST /admin/matching/subvenciones` |
+| `admin_matching_subvenciones_raw_save()` | `POST /admin/matching/subvenciones_raw` |
+| `admin_matching_pelicula_tmdb_save()` | `POST /admin/matching/pelicula_tmdb` |
+
+La normalización de título usada en todas las colas es `TITLE_NORM_SQL`
+(definida una sola vez en `webapp/app.py`): minúsculas, sin acentos, sin
+paréntesis, y el artículo inicial o final tipo "El/La/Los/Las/Un/Una/Unos/Unas"
+eliminado o reordenado solo cuando aparece exactamente como sufijo tras coma
+(evita el bug de cortar por la primera coma a ciegas, que mezclaba títulos no
+relacionados del tipo "CHARLOT, HÉROE DEL PATÍN").
+
+Tras cualquier cambio en `webapp/app.py` o en
+`webapp/templates/admin_matching.html` hace falta reconstruir el contenedor:
 
 ```bash
-python3 tmdb_gente_importer.py --tipo director --skip-existing
-python3 tmdb_gente_importer.py --tipo actor --skip-existing
+ssh ubuntu "cd /home/sergio/taquilla_app && docker-compose up -d --build"
 ```
 
-El importador ya protege `revisado_manual` y `notas`, por lo que la revisión hecha desde la web no se pierde.
-
 ---
 
-## Funciones principales
+## Trabajo futuro (no implementado todavía)
 
-| Función | Responsabilidad |
-|---|---|
-| `execute()` | Helper de escritura con commit |
-| `ensure_matching_schema()` | Asegura `titulo_anual_esp` e índice |
-| `get_icaa_matching_pending()` | Construye la cola de títulos ICAA pendientes |
-| `get_subvenciones_matching_pending()` | Construye la cola de títulos de subvenciones sin ficha ICAA |
-| `get_tmdb_people_pending()` | Construye la cola de personas TMDB pendientes |
-| `require_matching_admin()` | Aplica el token opcional |
-| `admin_matching()` | Renderiza la página |
-| `admin_matching_icaa_save()` | Guarda mappings ICAA |
-| `admin_matching_subvenciones_save()` | Guarda mappings `subvenciones` -> `icaa_fichas` |
-| `admin_matching_persona_save()` | Guarda revisiones de personas TMDB |
-
----
-
-## Limitaciones actuales del MVP
-
-El MVP resuelve revisión manual, pero todavía no incorpora:
-
-- tabla genérica de aliases para todos los orígenes;
-- historial de decisiones;
-- candidatos múltiples con score explicable;
-- pestaña de películas `top25/topespanol` frente a `tmdb`;
-- corrección de expedientes ICAA erróneos;
-- refresco automático de ficha TMDB tras guardar un ID;
-- autenticación real de usuarios, roles o auditoría por usuario.
-
----
-
-## Evolución recomendada
-
-La siguiente iteración natural sería pasar de correcciones puntuales a un modelo explícito de decisiones:
-
-```text
-movie_aliases
-person_aliases
-match_candidates
-match_reviews
-```
-
-Con eso la interfaz podría:
-
-- mostrar varios candidatos por caso;
-- registrar quién aprobó cada unión;
-- reutilizar aliases entre lotes;
-- separar `aceptado`, `rechazado` y `no existe`;
-- cubrir también películas Comscore ↔ TMDB;
-- reducir joins por nombre normalizado en tiempo de consulta.
-
-Ese paso encaja con la recomendación ya recogida en la auditoría del proyecto: avanzar hacia entidades canónicas (`movies`, `people`) y dejar los nombres de origen como aliases, no como claves de unión definitivas.
+- **Volcado masivo de matches ya identificados**: durante la exploración
+  previa a esta herramienta se identificaron ~390 filas de `subvenciones_raw`
+  cuyo match ya se puede deducir cruzando contra la tabla `subvenciones`
+  (que trae expedientes curados). Insertarlos de una vez en
+  `subvenciones_raw_icaa_matches` vaciaría gran parte de esa cola sin
+  revisión fila a fila.
+- **`personas_tmdb` canónica**: separar los datos "ricos" de cada persona
+  (biografía, foto, IMDb/Wikidata ID) en una tabla `personas_tmdb` con
+  `tmdb_id` como clave, dejando `tmdb_gente` como tabla pura de alias
+  (`nombre_icaa → tmdb_id`). Hoy los datos ricos siguen viviendo repetidos en
+  cada fila de `tmdb_gente`; el formulario de alias ya está preparado para
+  seguir funcionando igual cuando se haga esta migración.
+- **Historial de decisiones**: quién aprobó cada match y cuándo, más allá de
+  `created_at`/`updated_at`.
+- **Autenticación real** (usuarios/roles), más allá del token compartido.
