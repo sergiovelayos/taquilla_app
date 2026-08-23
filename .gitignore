@@ -54,6 +54,7 @@ scraper_icaa/scraper.log
 scraper_icaa/*.pdf
 scraper_icaa/.archive/
 scraper_icaa/html_sources/
+scraper_icaa/html_scrape/
 # Carpeta duplicada anidada
 scraper_icaa/scraper_icaa/
 
@@ -67,3 +68,4 @@ scraper_icaa/scraper_icaa/
 # ─── Otros ───────────────────────────────────────────────────────────────────
 *.sqlite3
 *.db
+*.dump

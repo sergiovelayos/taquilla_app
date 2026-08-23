@@ -1,7 +1,7 @@
 # Guía de matching — `/admin/matching`
 
 > Documentación de la herramienta de resolución manual de matchings.
-> Última actualización: julio 2026.
+> Última actualización: agosto 2026.
 
 ---
 
@@ -84,6 +84,23 @@ en su rol de catálogo): todo lo que se decide manualmente se guarda en una
 tabla puente aparte. Esto es deliberado — las tablas de origen son volcados
 reproducibles de cada fuente (scraping, importación de CSV...) y no deben
 llevar mezclado el juicio manual de matching.
+
+### Relación con el cron diario ICAA
+
+`run_icaa_update.sh` incorpora cada día las fichas de `ultimas_icaa` a
+`icaa_fichas`. No hay que lanzar una migración ni refrescar manualmente esta
+página después: todas las colas se calculan al abrir `/admin/matching`.
+
+Una ficha recién importada puede tener tres efectos:
+
+- hacer desaparecer un pendiente de **Películas ICAA** si coincide por título;
+- aportar un candidato nuevo a **Subvenciones (raw)**;
+- entrar en **Películas TMDB** si todavía no existe fila en
+  `pelicula_tmdb_match`.
+
+El alta inicial del flujo diario incorporó 123 fichas el 10 de agosto de 2026;
+las 123 entraron en la cola de Películas TMDB. Esto es esperado y no indica un
+fallo del matching.
 
 ### Buscador y filtro por dificultad
 
@@ -174,8 +191,9 @@ desde la web.
 
 ## 3. Subvenciones ICAA
 
-Cola: títulos distintos de `subvenciones` sin expediente ICAA (ni en la
-propia tabla ni en `subvenciones_icaa_matches`).
+Cola: filas de `subvenciones_resueltas` cuyo estado no sea `matched`. La clave
+actual es `subvencion_id`; esto evita que dos películas homónimas de años
+distintos compartan una decisión.
 
 ```sql
 CREATE TABLE subvenciones_icaa_matches (
@@ -186,17 +204,14 @@ CREATE TABLE subvenciones_icaa_matches (
 );
 ```
 
-La clave es el título literal (no normalizado), para conservar la variante
-histórica exacta que se revisó. `expediente_icaa` no tiene FK contra
-`icaa_fichas`: puede ser un ID oficial del catálogo ICAA que todavía no está
-importado localmente.
+`subvenciones_icaa_matches` se mantiene como compatibilidad con las decisiones
+antiguas. Las nuevas decisiones se escriben también en
+`subvenciones_icaa_matches_detalle`, con estado, confianza, método y notas.
+Los candidatos exactos y difusos viven en `subvenciones_icaa_candidates`; una
+coincidencia difusa nunca se aprueba automáticamente.
 
-**Ojo:** esta tabla usa el título como clave, así que si dos filas de
-`subvenciones` compartieran el mismo título pero fueran películas distintas,
-el match se aplicaría a ambas por igual. Para `subvenciones_raw` este
-problema se solucionó con una tabla puente por `id` (ver siguiente sección) —
-`subvenciones` en sí sigue usando título porque es una tabla más antigua y
-más pequeña, sin ese caso detectado todavía.
+El formulario permite confirmar un expediente, dejar el proyecto como
+`pending_ficha` o marcarlo como `sin_ficha`.
 
 ---
 
@@ -334,12 +349,10 @@ ssh ubuntu "cd /home/sergio/taquilla_app && docker-compose up -d --build"
 
 ## Trabajo futuro (no implementado todavía)
 
-- **Volcado masivo de matches ya identificados**: durante la exploración
-  previa a esta herramienta se identificaron ~390 filas de `subvenciones_raw`
-  cuyo match ya se puede deducir cruzando contra la tabla `subvenciones`
-  (que trae expedientes curados). Insertarlos de una vez en
-  `subvenciones_raw_icaa_matches` vaciaría gran parte de esa cola sin
-  revisión fila a fila.
+- **Completar metadatos de las resoluciones**: `subvenciones_raw` ya dispone de
+  columnas para empresa beneficiaria, NIF, expediente de ayuda, título original
+  del proyecto y URL fuente. Falta rellenarlas en los importadores históricos
+  para emplearlas como señales de desambiguación.
 - **`personas_tmdb` canónica**: separar los datos "ricos" de cada persona
   (biografía, foto, IMDb/Wikidata ID) en una tabla `personas_tmdb` con
   `tmdb_id` como clave, dejando `tmdb_gente` como tabla pura de alias
@@ -349,3 +362,32 @@ ssh ubuntu "cd /home/sergio/taquilla_app && docker-compose up -d --build"
 - **Historial de decisiones**: quién aprobó cada match y cuándo, más allá de
   `created_at`/`updated_at`.
 - **Autenticación real** (usuarios/roles), más allá del token compartido.
+
+## Matching local automático
+
+`scripts/subvenciones_matching_local.py` no usa Brave ni ningún buscador
+externo. Combina `icaa_fichas` y `scrape_icaa`, corrige artículos finales sin
+cortar títulos por comas y sólo aprueba automáticamente cuando:
+
+1. el título normalizado tiene un único expediente candidato;
+2. el año de producción es compatible con el año y tipo de ayuda.
+
+Los homónimos, candidatos sin año y coincidencias difusas quedan en revisión.
+Los proyectos de la convocatoria más reciente sin ficha se marcan como
+`pending_ficha` y se vuelven a evaluar en cada ejecución diaria.
+
+```bash
+# Informe sin escrituras
+./venv/bin/python scripts/subvenciones_matching_local.py --dry-run
+
+# Refresca catálogo, candidatos y matches locales seguros
+./venv/bin/python scripts/subvenciones_matching_local.py --apply
+```
+
+`run_icaa_update.sh` ejecuta `--apply` después de descargar y parsear las fichas
+recientes. No llama a `brave_icaa.py` ni a `icaa_brave_candidates.py`.
+
+Snapshot tras la primera aplicación (20-08-2026): 1.402 de 2.123 filas
+enlazadas; 924 matches automáticos nuevos, 39 homónimos descartados por año y
+2006 pasa de 3 a 90 matches. Se propagaron 1.347 decisiones a
+`subvenciones_raw_icaa_matches`.

@@ -3,7 +3,8 @@ icaa_parser.py — Parsea las fichas HTML del catálogo ICAA y las guarda en Pos
 
 Uso:
   python3 icaa_parser.py --dry-run    # Muestra lo extraído sin escribir en BBDD
-  python3 icaa_parser.py              # Parsea todos los HTMLs y guarda en tabla 'icaa_fichas'
+  python3 icaa_parser.py              # Guarda en BBDD y elimina cada HTML tras el commit
+  python3 icaa_parser.py --keep-html  # Conserva los HTMLs solo para depuración
 
 Los HTMLs deben estar en: scraper_icaa/html_sources/*.html
 El nombre del fichero es el ID de expediente ICAA (ej: 144423.html → expediente 144423)
@@ -482,14 +483,21 @@ if __name__ == "__main__":
                         help="Muestra los datos extraídos sin guardar en BBDD")
     parser.add_argument("--limit", type=int, default=None,
                         help="Procesar solo los N primeros ficheros")
-    parser.add_argument("--delete-parsed", action="store_true",
-                        help="Borra el HTML del disco tras guardarlo correctamente en BBDD")
+    storage = parser.add_mutually_exclusive_group()
+    storage.add_argument(
+        "--delete-parsed", dest="delete_parsed", action="store_true", default=True,
+        help="Borra el HTML tras guardarlo correctamente (comportamiento predeterminado)",
+    )
+    storage.add_argument(
+        "--keep-html", dest="delete_parsed", action="store_false",
+        help="Conserva los HTMLs procesados para depuración explícita",
+    )
     args = parser.parse_args()
 
     html_files = sorted(HTML_DIR.glob("*.html"))
     if not html_files:
-        log.error(f"No se encontraron ficheros HTML en {HTML_DIR}")
-        exit(1)
+        log.info(f"No hay ficheros HTML pendientes en {HTML_DIR}")
+        raise SystemExit(0)
 
     if args.limit:
         html_files = html_files[:args.limit]
@@ -516,9 +524,6 @@ if __name__ == "__main__":
             if not args.dry_run and conn:
                 guardar(conn, datos)
                 log.info(f"  💾 Guardado en icaa_fichas.")
-                if args.delete_parsed:
-                    filepath.unlink()
-                    log.info(f"  🗑️  HTML eliminado: {filepath.name}")
             ok += 1
 
         except Exception as e:
@@ -526,6 +531,13 @@ if __name__ == "__main__":
             if conn:
                 conn.rollback()
             errores += 1
+        finally:
+            # Los HTML son solo transporte temporal. Incluso si el parseo o la
+            # BBDD fallan, la ficha queda pendiente y se descargará de nuevo en
+            # la siguiente ejecución; no acumulamos respuestas en disco.
+            if not args.dry_run and args.delete_parsed and filepath.exists():
+                filepath.unlink()
+                log.info(f"  🗑️  HTML temporal eliminado: {filepath.name}")
 
     if conn:
         conn.close()

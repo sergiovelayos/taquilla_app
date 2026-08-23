@@ -363,10 +363,9 @@ def parsear_y_guardar(conn, args, pid, html):
     Parsea el HTML de una ficha y la guarda en scrape_icaa (salvo --dry-run).
     Devuelve (status, titulo) con status en {'ok', 'empty', 'error'}.
 
-    Con --no-save-html el fichero temporal se escribe en /tmp (fuera del
-    directorio del proyecto, que está montado como volumen compartido con el
-    macmini) en vez de en HTML_DIR, para no generar eventos de filesystem en
-    esa carpeta sincronizada por cada ficha descargada.
+    Por defecto el fichero temporal se escribe en /tmp y se elimina al terminar,
+    fuera del directorio del proyecto montado como volumen compartido. Solo
+    --save-html conserva una copia para depuración explícita.
     """
     dest = (Path(tempfile.gettempdir()) if args.no_save_html else HTML_DIR) / f"{pid}.html"
     dest.write_text(html, encoding="utf-8")
@@ -411,7 +410,15 @@ def parse_args():
     p.add_argument("--delay-max", type=float, default=6.0, help="Delay máximo entre peticiones (s)")
     p.add_argument("--limit", type=int, default=None, help="Procesar como máximo N IDs pendientes")
     p.add_argument("--dry-run", action="store_true", help="Descarga y parsea sin escribir en BBDD")
-    p.add_argument("--no-save-html", action="store_true", help="No guardar el HTML en disco")
+    storage = p.add_mutually_exclusive_group()
+    storage.add_argument(
+        "--no-save-html", dest="no_save_html", action="store_true", default=True,
+        help="No conservar el HTML (comportamiento predeterminado)",
+    )
+    storage.add_argument(
+        "--save-html", dest="no_save_html", action="store_false",
+        help="Conservar el HTML descargado en scraper_icaa/html_scrape (solo depuración)",
+    )
     args = p.parse_args()
     if args.ids_file:
         if args.start is not None or args.end is not None:

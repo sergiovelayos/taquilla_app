@@ -461,6 +461,201 @@ def build_capacity_insight(weekly_totals, current_fi):
     }
 
 
+def get_anuarios_years():
+    """Return years available for the annual historical blocks, most recent first."""
+    try:
+        rows = query("""
+            SELECT DISTINCT anio
+            FROM (
+                SELECT anio_anuario AS anio
+                FROM anuarios_silver
+                UNION
+                SELECT EXTRACT(YEAR FROM fecha_inicio)::int AS anio
+                FROM top25
+                WHERE fecha_inicio IS NOT NULL
+                UNION
+                SELECT EXTRACT(YEAR FROM fecha_inicio)::int AS anio
+                FROM topespanol
+                WHERE fecha_inicio IS NOT NULL
+            ) years
+            WHERE anio IS NOT NULL
+            ORDER BY anio DESC
+        """)
+        return [r['anio'] for r in rows]
+    except Exception:
+        return []
+
+
+def get_anuarios_annual_top(anio, nacionalidad_grupo, limit=10):
+    """
+    Return top movies released in a given year by that year's available box office.
+    Spanish films use anual_esp, now extended with pre-2016 anuario rows.
+    Spanish 2026 falls back to topespanol because anual_esp is not available yet.
+    Foreign films use the anuario silver layer through 2023 and top25 afterwards.
+    """
+    if nacionalidad_grupo == 'espanola':
+        if anio == 2026:
+            return query("""
+                WITH clean_rows AS (
+                    SELECT
+                        regexp_replace(titulo, '^(.+)\\s+\\1$', '\\1', 'i') AS titulo_limpio,
+                        fecha_inicio,
+                        recaudacion,
+                        total_espectadores,
+                        recaudacion_acum,
+                        espectadores_acum
+                    FROM topespanol
+                    WHERE titulo IS NOT NULL
+                ),
+                first_seen AS (
+                    SELECT public.norm_movie_title(titulo_limpio) AS titulo_key,
+                           MIN(fecha_inicio) AS primera_semana
+                    FROM clean_rows
+                    GROUP BY public.norm_movie_title(titulo_limpio)
+                ),
+                base AS (
+                    SELECT
+                        public.norm_movie_title(t.titulo_limpio) AS titulo_key,
+                        (ARRAY_AGG(t.titulo_limpio ORDER BY LENGTH(t.titulo_limpio), t.titulo_limpio))[1] AS titulo,
+                        MIN(t.fecha_inicio) AS fecha_estreno,
+                        MAX(t.recaudacion_acum) AS recaudacion_acum,
+                        SUM(t.recaudacion) AS recaudacion_sum,
+                        MAX(t.espectadores_acum) AS espectadores_acum,
+                        SUM(t.total_espectadores) AS espectadores_sum
+                    FROM clean_rows t
+                    JOIN first_seen fs
+                      ON fs.titulo_key = public.norm_movie_title(t.titulo_limpio)
+                    WHERE EXTRACT(YEAR FROM t.fecha_inicio)::int = %s
+                      AND EXTRACT(YEAR FROM fs.primera_semana)::int = %s
+                    GROUP BY public.norm_movie_title(t.titulo_limpio)
+                )
+                SELECT titulo,
+                       NULL::text AS distribuidora,
+                       fecha_estreno,
+                       COALESCE(recaudacion_acum, recaudacion_sum) AS recaudacion_total,
+                       COALESCE(espectadores_acum, espectadores_sum)::int AS espectadores_total
+                FROM base
+                ORDER BY espectadores_total DESC NULLS LAST, recaudacion_total DESC NULLS LAST, titulo ASC
+                LIMIT %s
+            """, (anio, anio, limit))
+
+        return query("""
+            SELECT titulo,
+                   distribuidora,
+                   fecha_estreno,
+                   recaudacion AS recaudacion_total,
+                   espectadores AS espectadores_total
+            FROM anual_esp
+            WHERE anio = %s
+            ORDER BY espectadores DESC NULLS LAST, recaudacion DESC NULLS LAST, titulo ASC
+            LIMIT %s
+        """, (anio, limit))
+
+    if anio >= 2024:
+        return query("""
+            WITH first_seen AS (
+                SELECT public.norm_movie_title(titulo) AS titulo_key,
+                       MIN(fecha_inicio) AS primera_semana
+                FROM top25
+                WHERE titulo IS NOT NULL
+                GROUP BY public.norm_movie_title(titulo)
+            ),
+            spanish_titles AS (
+                SELECT DISTINCT public.norm_movie_title(titulo) AS titulo_key
+                FROM anual_esp
+                WHERE anio = %s
+                  AND titulo IS NOT NULL
+                UNION
+                SELECT DISTINCT public.norm_movie_title(titulo) AS titulo_key
+                FROM topespanol
+                WHERE EXTRACT(YEAR FROM fecha_inicio)::int = %s
+                  AND titulo IS NOT NULL
+            ),
+            base AS (
+                SELECT
+                    public.norm_movie_title(t.titulo) AS titulo_key,
+                    (ARRAY_AGG(t.titulo ORDER BY LENGTH(t.titulo), t.titulo))[1] AS titulo,
+                    MIN(t.fecha_inicio) AS fecha_estreno,
+                    MAX(t.recaudacion_acum) AS recaudacion_acum,
+                    SUM(t.recaudacion) AS recaudacion_sum,
+                    MAX(t.espectadores_acum) AS espectadores_acum,
+                    SUM(t.total_espectadores) AS espectadores_sum
+                FROM top25 t
+                JOIN first_seen fs
+                  ON fs.titulo_key = public.norm_movie_title(t.titulo)
+                LEFT JOIN spanish_titles st
+                  ON st.titulo_key = public.norm_movie_title(t.titulo)
+                WHERE EXTRACT(YEAR FROM t.fecha_inicio)::int = %s
+                  AND EXTRACT(YEAR FROM fs.primera_semana)::int = %s
+                  AND t.titulo IS NOT NULL
+                  AND st.titulo_key IS NULL
+                GROUP BY public.norm_movie_title(t.titulo)
+            )
+            SELECT titulo,
+                   NULL::text AS distribuidora,
+                   fecha_estreno,
+                   COALESCE(recaudacion_acum, recaudacion_sum) AS recaudacion_total,
+                   COALESCE(espectadores_acum, espectadores_sum)::int AS espectadores_total
+            FROM base
+            ORDER BY espectadores_total DESC NULLS LAST, recaudacion_total DESC NULLS LAST, titulo ASC
+            LIMIT %s
+        """, (anio, anio, anio, anio, limit))
+
+    return query("""
+        WITH base AS (
+            SELECT
+                id,
+                titulo,
+                titulo_normalizado,
+                distribuidora,
+                COALESCE(fecha_estreno, fecha_autorizacion) AS fecha_estreno,
+                recaudacion,
+                espectadores,
+                row_number() OVER (
+                    PARTITION BY titulo_normalizado
+                    ORDER BY recaudacion DESC NULLS LAST,
+                             espectadores DESC NULLS LAST,
+                             id DESC
+                ) AS rn
+            FROM anuarios_silver
+            WHERE source_table IN ('anuarios_03_17_raw', 'anuarios_extranjeras_18_23_raw')
+              AND anio_anuario = %s
+              AND COALESCE(fecha_estreno, fecha_autorizacion) IS NOT NULL
+              AND EXTRACT(YEAR FROM COALESCE(fecha_estreno, fecha_autorizacion))::int = %s
+              AND NOT (
+                  source_table = 'anuarios_03_17_raw'
+                  AND UPPER(COALESCE(pais, '')) = 'ESPAÑA'
+              )
+        )
+        SELECT titulo,
+               distribuidora,
+               fecha_estreno,
+               recaudacion AS recaudacion_total,
+               espectadores AS espectadores_total
+        FROM base
+        WHERE rn = 1
+        ORDER BY espectadores_total DESC NULLS LAST, recaudacion_total DESC NULLS LAST, titulo ASC
+        LIMIT %s
+    """, (anio, anio, limit))
+
+
+def get_anuarios_historic_top(nacionalidad_grupo, limit=25):
+    """Return top historical films from anuarios_gold ordered by spectators."""
+    return query("""
+        SELECT titulo,
+               distribuidora,
+               COALESCE(fecha_estreno, fecha_autorizacion) AS fecha_estreno,
+               recaudacion_historica AS recaudacion_total,
+               espectadores_historico AS espectadores_total,
+               anio_anuario
+        FROM anuarios_gold
+        WHERE nacionalidad_grupo = %s
+          AND espectadores_historico IS NOT NULL
+        ORDER BY espectadores_historico DESC NULLS LAST, recaudacion_total DESC NULLS LAST, titulo ASC
+        LIMIT %s
+    """, (nacionalidad_grupo, limit))
+
+
 def get_anual_esp_years():
     """Return list of years available in anual_esp, most recent first."""
     try:
@@ -675,7 +870,7 @@ def get_benchmarks():
     # Promedio global: espectadores por cada 1.000€ de subvención
     global_avg = query("""
         SELECT (SUM(espectadores)::float / NULLIF(SUM(subvenciones_total_eur), 0)) * 1000 AS ratio
-        FROM icaa_fichas
+        FROM peliculas_calculadora
         WHERE subvenciones_total_eur > 0 AND espectadores > 0
           AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
     """)[0]['ratio'] or 0
@@ -695,9 +890,10 @@ def get_benchmarks():
             MAX(g.popularidad) AS popularidad,
             MAX(EXTRACT(YEAR FROM g.fecha_nacimiento))::int AS anio_nacimiento,
             MAX(g.lugar_nacimiento) AS lugar_nacimiento
-        FROM icaa_fichas f
+        FROM peliculas_calculadora f
         LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
         WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
+          AND NULLIF(TRIM(f.director), '') IS NOT NULL
           AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
         GROUP BY {director_norm}
         HAVING COUNT(*) >= 2
@@ -707,24 +903,29 @@ def get_benchmarks():
     # Actores (min 2 pelis) + foto TMDB — mismo criterio de normalización que
     # directores, ordenados por espectadores totales.
     actor_norm = NAME_NORM_SQL.format(field='a.nombre')
+    raw_actor_norm = NAME_NORM_SQL.format(field="actor->>'nombre'")
     top_actores = query(f"""
         WITH actor_stats AS (
-            SELECT actor->>'nombre' AS nombre,
+            SELECT DISTINCT ON (f.expediente_icaa, {raw_actor_norm})
+                   actor->>'nombre' AS nombre,
+                   f.expediente_icaa,
                    f.espectadores, f.subvenciones_total_eur, f.recaudacion_eur
-            FROM icaa_fichas f,
+            FROM peliculas_calculadora f,
                  jsonb_array_elements(f.ficha_artistica) AS actor
             WHERE f.subvenciones_total_eur > 0 AND f.espectadores > 0
               AND COALESCE(f.fecha_estreno < CURRENT_DATE - INTERVAL '2 months', f.anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
+              AND NULLIF(TRIM(actor->>'nombre'), '') IS NOT NULL
               AND (actor->>'funcion' ILIKE '%%Intérpretes%%'
                 OR actor->>'funcion' ILIKE '%%Actor%%'
                 OR actor->>'funcion' ILIKE '%%Actriz%%')
+            ORDER BY f.expediente_icaa, {raw_actor_norm}, LENGTH(actor->>'nombre') DESC
         )
         SELECT
             COALESCE(MAX(a.nombre) FILTER (WHERE a.nombre !~ ','), MIN(a.nombre)) AS nombre,
             SUM(a.espectadores) AS espectadores_totales,
             (SUM(a.espectadores)::float / NULLIF(SUM(a.subvenciones_total_eur), 0)) * 1000 AS ratio,
             SUM(a.recaudacion_eur) / NULLIF(SUM(a.subvenciones_total_eur), 0)               AS ratio_rec,
-            COUNT(*) AS num_pelis,
+            COUNT(DISTINCT a.expediente_icaa) AS num_pelis,
             (array_agg(g.foto_url ORDER BY g.popularidad DESC NULLS LAST) FILTER (WHERE g.foto_url IS NOT NULL))[1] AS foto_url,
             MAX(g.popularidad) AS popularidad,
             MAX(EXTRACT(YEAR FROM g.fecha_nacimiento))::int AS anio_nacimiento,
@@ -744,7 +945,7 @@ def get_benchmarks():
                espectadores,
                recaudacion_eur,
                subvenciones_total_eur
-        FROM icaa_fichas
+        FROM peliculas_calculadora
         WHERE subvenciones_total_eur > 5000
           AND espectadores > 0
           AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
@@ -759,7 +960,7 @@ def get_benchmarks():
                espectadores,
                recaudacion_eur,
                subvenciones_total_eur
-        FROM icaa_fichas
+        FROM peliculas_calculadora
         WHERE subvenciones_total_eur > 50000
           AND espectadores IS NOT NULL
           AND COALESCE(fecha_estreno < CURRENT_DATE - INTERVAL '2 months', anio_produccion < EXTRACT(YEAR FROM CURRENT_DATE), FALSE)
@@ -800,12 +1001,12 @@ def calculadora():
         if tipo == 'director':
             col_norm = base_norm.format("director")
             val_norm = base_norm.format("%s")
-            sql = f"SELECT * FROM icaa_fichas WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+            sql = f"SELECT * FROM peliculas_calculadora WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
         elif tipo == 'actor':
             col_norm = base_norm.format("x->>'nombre'")
             val_norm = base_norm.format("%s")
             sql = f"""
-                SELECT * FROM icaa_fichas
+                SELECT * FROM peliculas_calculadora
                 WHERE EXISTS (
                     SELECT 1 FROM jsonb_array_elements(ficha_artistica) AS x
                     WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%'
@@ -815,11 +1016,11 @@ def calculadora():
         elif tipo == 'genero':
             col_norm = base_norm.format("genero")
             val_norm = base_norm.format("%s")
-            sql = f"SELECT * FROM icaa_fichas WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+            sql = f"SELECT * FROM peliculas_calculadora WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
         elif tipo == 'pelicula':
             col_norm = base_norm.format("titulo")
             val_norm = base_norm.format("%s")
-            sql = f"SELECT * FROM icaa_fichas WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
+            sql = f"SELECT * FROM peliculas_calculadora WHERE {col_norm} ILIKE '%%' || {val_norm} || '%%' ORDER BY fecha_estreno DESC"
 
         if sql:
             results = query(sql, params)
@@ -1155,7 +1356,7 @@ def api_ranking():
 
 @app.route('/pelicula/<expediente_icaa>')
 def detalle_pelicula(expediente_icaa):
-    res = query("SELECT * FROM icaa_fichas WHERE expediente_icaa = %s", [expediente_icaa])
+    res = query("SELECT * FROM icaa_catalogo WHERE expediente_icaa = %s", [expediente_icaa])
     if not res:
         return "Película no encontrada", 404
 
@@ -1178,14 +1379,7 @@ def detalle_pelicula(expediente_icaa):
 # Matching review
 # ---------------------------------------------------------------------------
 
-TITLE_NORM_SQL = """
-regexp_replace(
-    unaccent(LOWER(TRIM(
-        regexp_replace(split_part({field}, ',', 1), '\\([^)]*\\)', '', 'g')
-    ))),
-    '^(el|la|los|las|un|una|unos|unas)\\s+', ''
-)
-"""
+TITLE_NORM_SQL = "public.norm_movie_title({field})"
 
 
 PELICULA_TMDB_UPSERT_SQL = """
@@ -1359,6 +1553,14 @@ def asegurar_ficha_icaa_completa(expediente_icaa):
 def ensure_matching_schema():
     """Create lightweight fields needed by the manual matching UI."""
     execute("""
+        ALTER TABLE subvenciones
+        ADD COLUMN IF NOT EXISTS id BIGSERIAL;
+    """)
+    execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS subvenciones_id_unique_idx
+        ON subvenciones (id);
+    """)
+    execute("""
         ALTER TABLE icaa_fichas
         ADD COLUMN IF NOT EXISTS titulo_anual_esp TEXT;
     """)
@@ -1383,6 +1585,18 @@ def ensure_matching_schema():
     execute("""
         CREATE INDEX IF NOT EXISTS subvenciones_icaa_matches_expediente_idx
         ON subvenciones_icaa_matches (expediente_icaa);
+    """)
+    execute("""
+        CREATE TABLE IF NOT EXISTS subvenciones_icaa_matches_detalle (
+            subvencion_id    BIGINT PRIMARY KEY REFERENCES subvenciones(id) ON DELETE CASCADE,
+            expediente_icaa TEXT,
+            estado           TEXT NOT NULL DEFAULT 'review',
+            confianza        NUMERIC(5,4),
+            metodo           TEXT,
+            notas            TEXT,
+            created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
     """)
     # subvenciones_raw se referencia por id (no por título): un mismo título puede
     # repetirse en filas distintas (dos ayudas, o dos películas homónimas de años
@@ -1509,20 +1723,42 @@ def get_subvenciones_matching_pending(limit=50, q=None):
     """Titles in subvenciones that still have no ICAA ficha linked."""
     return query("""
         SELECT
+            s.id AS subvencion_id,
             s.titulo,
-            MIN(s.anio_ayuda) AS primer_anio,
-            MAX(s.anio_ayuda) AS ultimo_anio,
-            SUM(s.importe_ayuda) AS importe_total,
-            COUNT(*) AS filas
-        FROM subvenciones s
-        LEFT JOIN subvenciones_icaa_matches m
-          ON m.titulo_subvencion = s.titulo
-        WHERE COALESCE(m.expediente_icaa, s.expediente_icaa) IS NULL
+            s.anio_ayuda AS primer_anio,
+            s.anio_ayuda AS ultimo_anio,
+            s.importe_ayuda AS importe_total,
+            1 AS filas,
+            s.estado_matching,
+            COUNT(c.expediente_icaa) AS n_candidatos,
+            (ARRAY_AGG(c.expediente_icaa ORDER BY c.rank_candidato, c.similitud_titulo DESC)
+                FILTER (WHERE c.expediente_icaa IS NOT NULL))[1] AS candidato_expediente,
+            (ARRAY_AGG(c.titulo_icaa ORDER BY c.rank_candidato, c.similitud_titulo DESC)
+                FILTER (WHERE c.expediente_icaa IS NOT NULL))[1] AS candidato_titulo,
+            MAX(c.similitud_titulo) AS candidato_similitud
+        FROM subvenciones_resueltas s
+        LEFT JOIN subvenciones_icaa_candidates c ON c.subvencion_id = s.id
+        WHERE s.estado_matching <> 'matched'
           AND (%(q)s::text IS NULL OR s.titulo ILIKE '%%' || %(q)s || '%%')
-        GROUP BY s.titulo
-        ORDER BY importe_total DESC NULLS LAST, ultimo_anio DESC NULLS LAST, s.titulo
+        GROUP BY s.id, s.titulo, s.anio_ayuda, s.importe_ayuda, s.estado_matching
+        ORDER BY CASE s.estado_matching WHEN 'review' THEN 0 ELSE 1 END,
+                 s.importe_ayuda DESC NULLS LAST, s.anio_ayuda DESC, s.titulo
         LIMIT %(limit)s
     """, {'q': q, 'limit': limit})
+
+
+def get_subvenciones_matching_stats():
+    """Real totals for the subsidy matching dashboard (not page-size counts)."""
+    rows = query("""
+        SELECT COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE estado_matching = 'matched') AS matched,
+               COUNT(*) FILTER (WHERE estado_matching = 'review') AS review,
+               COUNT(*) FILTER (WHERE estado_matching = 'pending_ficha') AS pending_ficha,
+               COUNT(*) FILTER (WHERE metodo_matching = 'exact_norm_unique') AS automaticos,
+               COUNT(*) FILTER (WHERE metodo_matching IN ('legacy_manual', 'manual', 'directo')) AS curados
+        FROM subvenciones_resueltas
+    """)
+    return rows[0] if rows else {}
 
 
 def get_subvenciones_raw_matching_pending(limit=50, q=None, solo_dificiles=True):
@@ -1576,7 +1812,7 @@ def get_pelicula_tmdb_pending(limit=50, q=None):
             f.titulo,
             f.anio_produccion,
             f.director
-        FROM icaa_fichas f
+        FROM icaa_catalogo f
         LEFT JOIN pelicula_tmdb_match m ON m.expediente_icaa = f.expediente_icaa
         WHERE m.expediente_icaa IS NULL
           AND (%(q)s::text IS NULL OR f.titulo ILIKE '%%' || %(q)s || '%%')
@@ -1609,6 +1845,7 @@ def admin_matching():
     icaa_pending = get_icaa_matching_pending(25, q=q if tab == 'icaa' else None)
     people_pending = get_tmdb_people_pending(50, q=q if tab == 'personas' else None)
     subvenciones_pending = get_subvenciones_matching_pending(50, q=q if tab == 'subvenciones' else None)
+    subvenciones_matching_stats = get_subvenciones_matching_stats()
     subvenciones_raw_pending = get_subvenciones_raw_matching_pending(
         50, q=q if tab == 'subvenciones_raw' else None, solo_dificiles=not mostrar_todos)
     pelicula_tmdb_pending = get_pelicula_tmdb_pending(50, q=q if tab == 'pelicula_tmdb' else None)
@@ -1616,7 +1853,8 @@ def admin_matching():
     stats = {
         'icaa_pending': len(icaa_pending),
         'people_pending': len(people_pending),
-        'subvenciones_pending': len(subvenciones_pending),
+        'subvenciones_pending': (subvenciones_matching_stats.get('review', 0) +
+                                 subvenciones_matching_stats.get('pending_ficha', 0)),
         'subvenciones_raw_pending': len(subvenciones_raw_pending),
         'pelicula_tmdb_pending': len(pelicula_tmdb_pending),
     }
@@ -1632,6 +1870,7 @@ def admin_matching():
         icaa_pending=icaa_pending,
         people_pending=people_pending,
         subvenciones_pending=subvenciones_pending,
+        subvenciones_matching_stats=subvenciones_matching_stats,
         subvenciones_raw_pending=subvenciones_raw_pending,
         pelicula_tmdb_pending=pelicula_tmdb_pending,
     )
@@ -1724,10 +1963,35 @@ def admin_matching_subvenciones_save():
     token = require_matching_admin()
     ensure_matching_schema()
     titulo = request.form.get('titulo', '').strip()
+    subvencion_id = request.form.get('subvencion_id', '').strip()
     expediente_icaa = request.form.get('expediente_icaa', '').strip()
+    action = request.form.get('action', 'save')
 
-    if not titulo or not expediente_icaa:
-        return redirect(url_for('admin_matching', tab='subvenciones', token=token, err='Falta el titulo de subvencion o el expediente ICAA.'))
+    if not titulo or not subvencion_id:
+        return redirect(url_for('admin_matching', tab='subvenciones', token=token, err='Falta el título o el id de subvención.'))
+
+    try:
+        subvencion_id_int = int(subvencion_id)
+    except ValueError:
+        return redirect(url_for('admin_matching', tab='subvenciones', token=token, err='El id de subvención no es válido.'))
+
+    if action in ('pending_ficha', 'sin_ficha'):
+        estado = action
+        execute("""
+            INSERT INTO subvenciones_icaa_matches_detalle
+                (subvencion_id, expediente_icaa, estado, confianza, metodo, notas)
+            VALUES (%s, NULL, %s, NULL, 'manual', %s)
+            ON CONFLICT (subvencion_id) DO UPDATE SET
+                expediente_icaa = NULL, estado = EXCLUDED.estado,
+                confianza = NULL, metodo = 'manual', notas = EXCLUDED.notas,
+                updated_at = NOW();
+        """, [subvencion_id_int, estado,
+              'Pendiente de publicación de ficha ICAA' if estado == 'pending_ficha' else 'Confirmado sin ficha ICAA'])
+        return redirect(url_for('admin_matching', tab='subvenciones', token=token,
+                                msg=f'Estado actualizado para {titulo}: {estado}.'))
+
+    if not expediente_icaa:
+        return redirect(url_for('admin_matching', tab='subvenciones', token=token, err='Falta el expediente ICAA.'))
 
     execute("""
         INSERT INTO subvenciones_icaa_matches (titulo_subvencion, expediente_icaa)
@@ -1736,6 +2000,18 @@ def admin_matching_subvenciones_save():
         SET expediente_icaa = EXCLUDED.expediente_icaa,
             updated_at = NOW();
     """, [titulo, expediente_icaa])
+
+    execute("""
+        INSERT INTO subvenciones_icaa_matches_detalle
+            (subvencion_id, expediente_icaa, estado, confianza, metodo, notas)
+        VALUES (%s, %s, 'matched', 1.0, 'manual', 'Confirmado desde /admin/matching')
+        ON CONFLICT (subvencion_id) DO UPDATE SET
+            expediente_icaa = EXCLUDED.expediente_icaa,
+            estado = 'matched', confianza = 1.0, metodo = 'manual',
+            notas = EXCLUDED.notas, updated_at = NOW();
+    """, [subvencion_id_int, expediente_icaa])
+
+    asegurar_ficha_icaa_completa(expediente_icaa)
 
     return redirect(url_for('admin_matching', tab='subvenciones', token=token, msg=f'Mapeo guardado: {titulo} -> ICAA {expediente_icaa}.'))
 
@@ -1950,25 +2226,26 @@ def index():
 
 @app.route('/historico-taquilla')
 def historico_taquilla():
-    """Rankings acumulados + informe anual oficial ICAA + distribución percentil."""
-    tab = request.args.get('tab', 'top25')
-    table = 'top25' if tab == 'top25' else 'topespanol'
+    """Anuario gold/silver rankings + informe anual oficial ICAA."""
 
     current_year = date.today().year
-    available_years = get_available_years(table)
+    available_years = get_anuarios_years()
     year_param = request.args.get('year')
     selected_year = int(year_param) if year_param and year_param.isdigit() else current_year
     if selected_year not in available_years:
-        selected_year = current_year
+        selected_year = available_years[0] if available_years else current_year
 
-    top_year = get_top_year(table, selected_year, 10)
-    top_historico = get_top_historico(table, 10)
+    top_year_espanolas = get_anuarios_annual_top(selected_year, 'espanola', 10)
+    top_year_extranjeras = get_anuarios_annual_top(selected_year, 'extranjera', 10)
+    top_historico_espanolas = get_anuarios_historic_top('espanola', 25)
+    top_historico_extranjeras = get_anuarios_historic_top('extranjera', 25)
     anual_years = get_anual_esp_years()
 
     return render_template('historico_taquilla.html',
-                           tab=tab,
-                           top_year=top_year,
-                           top_historico=top_historico,
+                           top_year_espanolas=top_year_espanolas,
+                           top_year_extranjeras=top_year_extranjeras,
+                           top_historico_espanolas=top_historico_espanolas,
+                           top_historico_extranjeras=top_historico_extranjeras,
                            current_year=current_year,
                            selected_year=selected_year,
                            available_years=available_years,
@@ -2197,14 +2474,15 @@ def get_subvenciones_db_table():
                    s.importe_ayuda,
                    s.presupuesto_proyecto,
                    s.anio_ayuda,
-                   COALESCE(m.expediente_icaa, s.expediente_icaa) AS expediente_icaa,
+                   s.expediente_resuelto AS expediente_icaa,
                    f.expediente_icaa IS NOT NULL AS tiene_ficha_local,
+                   s.estado_matching,
+                   s.confianza_matching,
+                   s.metodo_matching,
                    s.tmdb_id
-            FROM subvenciones s
-            LEFT JOIN subvenciones_icaa_matches m
-              ON m.titulo_subvencion = s.titulo
-            LEFT JOIN icaa_fichas f
-              ON f.expediente_icaa = COALESCE(m.expediente_icaa, s.expediente_icaa)
+            FROM subvenciones_resueltas s
+            LEFT JOIN icaa_catalogo f
+              ON f.expediente_icaa = s.expediente_resuelto
             ORDER BY s.anio_ayuda DESC, s.titulo ASC
         """)
         return [
@@ -2215,6 +2493,9 @@ def get_subvenciones_db_table():
                 'anio_ayuda':           r['anio_ayuda'],
                 'expediente_icaa':      r['expediente_icaa'],
                 'tiene_ficha_local':    r['tiene_ficha_local'],
+                'estado_matching':      r['estado_matching'],
+                'confianza_matching':   float(r['confianza_matching']) if r['confianza_matching'] is not None else None,
+                'metodo_matching':      r['metodo_matching'],
                 'tmdb_id':              r['tmdb_id'],
             }
             for r in rows

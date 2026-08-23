@@ -16,16 +16,20 @@ echo "=== Weekly Update Started: $(date) ===" >> "$LOG_FILE"
 
 # 1. Update Box Office Data (PDF Scraping & Parsing)
 echo "[$(date)] Phase 1: Taquilla PDF Update..." >> "$LOG_FILE"
-"$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" "$@" || {
+if "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" "$@"; then
+    echo "[$(date)] Phase 1 completed successfully." >> "$LOG_FILE"
+else
     EXIT_CODE=$?
-    if [ "$EXIT_CODE" -eq 1 ]; then
-        echo "[$(date)] Phase 1: no new PDFs found. Continuing." >> "$LOG_FILE"
-    else
-        echo "[$(date)] Phase 1 failed (exit $EXIT_CODE). Check logs/update.log for details." >> "$LOG_FILE"
-        exit "$EXIT_CODE"
-    fi
-}
-echo "[$(date)] Phase 1 completed." >> "$LOG_FILE"
+    echo "[$(date)] Phase 1 failed (exit $EXIT_CODE). Check logs/update.log for details." >> "$LOG_FILE"
+    exit "$EXIT_CODE"
+fi
+
+# Do not mark the run successful (or spend time enriching TMDB) while either
+# report for the expected Friday-Sunday period is still missing.
+if ! "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/update.py" --check-current-week; then
+    echo "[$(date)] Weekly data is still incomplete; midday retry remains enabled." >> "$LOG_FILE"
+    exit 1
+fi
 
 # 2. Enrich with TMDB Data
 echo "[$(date)] Phase 2: TMDB Enrichment..." >> "$LOG_FILE"
@@ -39,5 +43,5 @@ fi
 echo "=== Weekly Update Finished: $(date) ===" >> "$LOG_FILE"
 echo "" >> "$LOG_FILE"
 
-# Marca de éxito para el reintento de mediodía
+# The current week was verified above and TMDB completed successfully.
 date +%Y-%m-%d > "$SCRIPT_DIR/logs/.last_success_date"

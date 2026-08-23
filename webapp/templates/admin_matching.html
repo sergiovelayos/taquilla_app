@@ -315,6 +315,13 @@
         </div>
     </section>
     {% elif tab == 'subvenciones' %}
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md"><div class="kpi"><div class="kpi-value">{{ subvenciones_matching_stats.total }}</div><div class="kpi-label">Total</div></div></div>
+        <div class="col-6 col-md"><div class="kpi"><div class="kpi-value text-success">{{ subvenciones_matching_stats.matched }}</div><div class="kpi-label">Enlazadas</div></div></div>
+        <div class="col-6 col-md"><div class="kpi"><div class="kpi-value text-warning">{{ subvenciones_matching_stats.review }}</div><div class="kpi-label">Revisar</div></div></div>
+        <div class="col-6 col-md"><div class="kpi"><div class="kpi-value text-info">{{ subvenciones_matching_stats.pending_ficha }}</div><div class="kpi-label">Pendiente ficha</div></div></div>
+        <div class="col-6 col-md"><div class="kpi"><div class="kpi-value">{{ subvenciones_matching_stats.automaticos }}</div><div class="kpi-label">Auto seguros</div></div></div>
+    </div>
     <section class="work-panel">
         <div class="work-panel-header">
             <div class="work-panel-title"><i class="bi bi-bank me-2"></i>Títulos de subvenciones sin ficha ICAA</div>
@@ -338,6 +345,11 @@
                     <tr>
                         <td>
                             <div class="name-main">{{ row.titulo }}</div>
+                            {% if row.estado_matching == 'pending_ficha' %}
+                            <span class="badge text-bg-info">pendiente de ficha</span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark">revisar</span>
+                            {% endif %}
                             <a class="icaa-link name-sub" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
                                 <i class="bi bi-box-arrow-up-right me-1"></i>Catálogo ICAA
                             </a>
@@ -352,12 +364,28 @@
                         <td><span class="impact-badge"><i class="bi bi-cash-stack"></i>{{ row.importe_total|euros_short }}</span></td>
                         <td><span class="impact-badge">{{ row.filas }}</span></td>
                         <td>
+                            {% if row.candidato_expediente %}
+                            <div class="name-sub mb-1">
+                                {{ row.n_candidatos }} candidato(s) · mejor:
+                                <a class="icaa-link" href="https://sede.mcu.gob.es/CatalogoICAA/es-es/Peliculas/Detalle?Pelicula={{ row.candidato_expediente }}" target="_blank" rel="noreferrer">
+                                    {{ row.candidato_titulo }} ({{ row.candidato_expediente }})
+                                </a>
+                                {% if row.candidato_similitud %}· {{ '%.0f'|format(row.candidato_similitud * 100) }}%{% endif %}
+                            </div>
+                            {% endif %}
                             <form class="inline-form" action="{{ url_for('admin_matching_subvenciones_save') }}" method="post">
                                 <input type="hidden" name="token" value="{{ token }}">
                                 <input type="hidden" name="titulo" value="{{ row.titulo }}">
-                                <input class="form-control form-control-sm" type="number" name="expediente_icaa" placeholder="ID ICAA" min="1" required>
-                                <button class="btn btn-sm btn-success btn-icon" title="Guardar">
+                                <input type="hidden" name="subvencion_id" value="{{ row.subvencion_id }}">
+                                <input class="form-control form-control-sm" type="number" name="expediente_icaa" placeholder="ID ICAA" min="1" value="{{ row.candidato_expediente or '' }}">
+                                <button class="btn btn-sm btn-success btn-icon" name="action" value="save" title="Guardar match">
                                     <i class="bi bi-check2"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-info btn-icon" name="action" value="pending_ficha" title="Pendiente de ficha ICAA">
+                                    <i class="bi bi-hourglass-split"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary btn-icon" name="action" value="sin_ficha" title="Confirmado sin ficha ICAA">
+                                    <i class="bi bi-slash-circle"></i>
                                 </button>
                                 <a class="btn btn-sm btn-outline-secondary btn-icon" title="Buscar" href="https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Buscar?Titulo={{ row.titulo|urlencode }}" target="_blank" rel="noreferrer">
                                     <i class="bi bi-search"></i>

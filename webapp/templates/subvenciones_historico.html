@@ -117,6 +117,12 @@
             <i class="bi bi-film"></i> Insights Taquilla España
         </a>
         <div class="navbar-nav me-auto gap-1">
+            <a class="nav-link" href="/">
+                <i class="bi bi-bar-chart-fill"></i> Taquilla Semanal
+            </a>
+            <a class="nav-link" href="/historico-taquilla">
+                <i class="bi bi-clock-history"></i> Histórico Taquilla
+            </a>
             <a class="nav-link" href="/calculadora">
                 <i class="bi bi-calculator"></i> Calculadora Subvenciones
             </a>
@@ -610,7 +616,11 @@ function downloadChartCSV() {
                 ? `<a href="${icaaUrl}" target="_blank" rel="noreferrer" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:0.7rem;" title="Ver ficha en catálogo ICAA">
                        <i class="bi bi-box-arrow-up-right"></i>
                    </a>`
-                : `<span class="text-muted" style="font-size:0.75rem;">—</span>`;
+                : r.estado_matching === 'pending_ficha'
+                ? `<span class="badge text-bg-info" title="Proyecto reciente: la ficha ICAA puede no estar publicada todavía">pendiente</span>`
+                : r.estado_matching === 'sin_ficha'
+                ? `<span class="badge text-bg-secondary">sin ficha</span>`
+                : `<span class="badge text-bg-warning text-dark" title="Pendiente de revisión de candidatos">revisar</span>`;
             return `<tr>
                 <td>${tituloCell}</td>
                 <td class="text-center text-muted">${r.anio_ayuda}</td>

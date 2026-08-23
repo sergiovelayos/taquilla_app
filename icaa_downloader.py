@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """
-icaa_downloader.py — Descarga los HTMLs de las fichas ICAA para los
-expedientes que estan en icaa_fichas pero aun no tienen el HTML guardado.
+icaa_downloader.py — Descarga temporalmente los HTMLs de las fichas ICAA para
+los expedientes pendientes de completar en la base de datos.
 
 FLUJO
 -----
-  1. Lee de icaa_fichas los expedientes que son stubs (director IS NULL)
-     — o todos los IDs si se usa --all
+  1. Lee de icaa_fichas los expedientes que son stubs (director IS NULL),
+     los IDs de ultimas_icaa si se usa --latest, o todos con --all
   2. Para cada ID descarga:
        https://sede.mcu.gob.es/CatalogoICAA/Peliculas/Detalle?Pelicula=<ID>
-  3. Guarda el HTML en scraper_icaa/html_sources/<ID>.html
-  4. Salta los que ya tienen fichero en disco (--skip-existing, activo por defecto)
+  3. Deja temporalmente el HTML en scraper_icaa/html_sources/<ID>.html
+  4. Salta los ficheros temporales que ya existan, salvo con --force
 
-Cuando acabe, ejecuta icaa_parser.py para parsear los nuevos HTMLs y
-enriquecer icaa_fichas con director, genero, fecha_estreno, etc.
+El flujo diario ejecuta después icaa_parser.py --delete-parsed: intenta el upsert
+en icaa_fichas y elimina siempre el HTML temporal al terminar. Una ficha fallida
+queda pendiente en la base de datos y se vuelve a descargar en la siguiente ejecución.
 
 USO
 ---
   python3 icaa_downloader.py --dry-run         # solo lista los IDs a descargar
   python3 icaa_downloader.py --limit 50        # descarga los primeros 50 stubs
+  python3 icaa_downloader.py --latest         # nuevas fichas vistas por el cron diario
   python3 icaa_downloader.py                   # descarga todos los stubs
   python3 icaa_downloader.py --all             # todos los IDs (redownload incluido)
 
@@ -92,6 +94,24 @@ def fetch_stubs(conn, only_stubs: bool, limit):
         return [str(row[0]) for row in cur.fetchall()]
 
 
+def fetch_latest(conn, limit):
+    """Return recent ICAA IDs which are missing or still incomplete locally."""
+    limit_clause = f"LIMIT {int(limit)}" if limit else ""
+    sql = f"""
+        SELECT u.expediente_icaa
+        FROM ultimas_icaa u
+        LEFT JOIN icaa_fichas i
+          ON i.expediente_icaa = u.expediente_icaa
+        WHERE i.expediente_icaa IS NULL
+           OR i.director IS NULL
+        ORDER BY u.resolucion DESC NULLS LAST, u.expediente_icaa
+        {limit_clause}
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        return [str(row[0]) for row in cur.fetchall()]
+
+
 # ---------------------------------------------------------------------------
 # Descarga
 # ---------------------------------------------------------------------------
@@ -131,6 +151,8 @@ def parse_args():
                    help="Solo lista los IDs a descargar, sin descargar nada")
     p.add_argument("--all",      action="store_true",
                    help="Descarga todos los IDs (no solo stubs sin director)")
+    p.add_argument("--latest",   action="store_true",
+                   help="Descarga pendientes detectados por ultimas_icaa")
     p.add_argument("--limit",    type=int, default=None, metavar="N",
                    help="Descargar solo los primeros N expedientes")
     p.add_argument("--delay",    type=float, default=0.5, metavar="SEG",
@@ -143,19 +165,27 @@ def parse_args():
 def main():
     args = parse_args()
 
+    if args.all and args.latest:
+        raise SystemExit("--all y --latest no se pueden combinar")
+
     HTML_DIR.mkdir(parents=True, exist_ok=True)
 
     dsn  = os.getenv("DATABASE_URL", "postgresql://localhost/taquilla_app")
     conn = psycopg2.connect(dsn)
 
-    ids = fetch_stubs(conn, only_stubs=not args.all, limit=args.limit)
+    if args.latest:
+        ids = fetch_latest(conn, limit=args.limit)
+        source = "pendientes de ultimas_icaa"
+    else:
+        ids = fetch_stubs(conn, only_stubs=not args.all, limit=args.limit)
+        source = "todos" if args.all else "solo stubs sin director"
     conn.close()
 
     total = len(ids)
     log.info(
         "%d expedientes a procesar (%s).",
         total,
-        "todos" if args.all else "solo stubs sin director",
+        source,
     )
 
     if args.dry_run:
@@ -192,13 +222,16 @@ def main():
     print(f"  Descargados            : {downloaded}")
     print(f"  Ya en disco (skip)     : {skipped}")
     print(f"  Errores                : {errors}")
-    print(f"\n  HTMLs guardados en: {HTML_DIR}")
+    print(f"\n  HTMLs temporales en: {HTML_DIR}")
     if downloaded > 0:
         print(
             f"\n  Siguiente paso:"
-            f"\n    python3 icaa_parser.py"
-            f"\n  para parsear los {downloaded} HTMLs nuevos y enriquecer icaa_fichas."
+            f"\n    python3 icaa_parser.py --delete-parsed"
+            f"\n  para importar los {downloaded} HTMLs y borrar los temporales al terminar."
         )
+
+    if errors:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

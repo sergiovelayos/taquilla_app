@@ -8,10 +8,14 @@ Página en `/calculadora`. Permite analizar el impacto de las subvenciones públ
 
 | Tabla | Rol |
 |---|---|
-| `icaa_fichas` | Fuente principal. Contiene subvenciones, espectadores, recaudación, director, género, reparto (JSONB) y expediente ICAA de cada película. |
+| `icaa_catalogo_cache` / `icaa_catalogo` | Catálogo canónico que combina `icaa_fichas` y `scrape_icaa`, conservando por expediente la fila más completa. |
+| `subvenciones_resueltas` | Ayudas con expediente ICAA, estado, confianza y método de matching. |
+| `peliculas_calculadora` | Vista final: catálogo canónico más ayudas oficiales agregadas por expediente. |
 | `tmdb_gente` | Fotos y biografías de directores y actores. Join por `nombre_icaa = director`. |
 
-> La tabla `subvenciones` creada en mayo 2026 **no está integrada aún** en esta página. La calculadora lee subvenciones exclusivamente desde `icaa_fichas.subvenciones_total_eur`.
+Cuando existe al menos una ayuda enlazada, `peliculas_calculadora.subvenciones_total_eur`
+usa la suma de las resoluciones oficiales. Si no existe, conserva como fallback el
+total publicado en la ficha ICAA. Las dos fuentes nunca se suman entre sí.
 
 ---
 
@@ -33,7 +37,8 @@ Formulario con dos parámetros:
 - **Tipo**: `director`, `actor`, `genero` o `pelicula`.
 - **Query**: texto libre con búsqueda por `ILIKE` normalizado (sin acentos, sin caracteres especiales).
 
-Todos los modos consultan `icaa_fichas` filtrando únicamente las películas con `subvenciones_total_eur IS NOT NULL`.
+Todos los modos consultan `peliculas_calculadora`, que incluye tanto `icaa_fichas`
+como `scrape_icaa` y conserva la procedencia del importe.
 
 | Modo | Columna buscada | Nota |
 |---|---|---|
@@ -53,9 +58,9 @@ Solo contabilizan películas que superan el criterio de antigüedad:
 | KPI | Campo fuente |
 |---|---|
 | Películas Analizadas | COUNT de resultados aptos |
-| Recaudación Total | SUM de `icaa_fichas.recaudacion_eur` |
-| Espectadores Totales | SUM de `icaa_fichas.espectadores` |
-| Ayudas Públicas | SUM de `icaa_fichas.subvenciones_total_eur` |
+| Recaudación Total | SUM de `peliculas_calculadora.recaudacion_eur` |
+| Espectadores Totales | SUM de `peliculas_calculadora.espectadores` |
+| Ayudas Públicas | SUM de `peliculas_calculadora.subvenciones_total_eur` |
 
 ### Ratio de eficiencia
 
@@ -67,7 +72,7 @@ recaudacion_total / subvenciones_totales → euros de taquilla por cada euro de 
 
 ### Listado de películas
 
-Tabla con todas las películas del criterio buscado (aptas y recientes). Cada fila enlaza a `/pelicula/<expediente_icaa>`, que renderiza la ficha completa desde `icaa_fichas`.
+Tabla con todas las películas del criterio buscado (aptas y recientes). Cada fila enlaza a `/pelicula/<expediente_icaa>`, que renderiza la ficha desde el catálogo canónico.
 
 ---
 
@@ -88,7 +93,7 @@ Dos ratios complementarios:
 
 ```sql
 (SUM(espectadores) / SUM(subvenciones_total_eur)) × 1.000
-FROM icaa_fichas
+FROM peliculas_calculadora
 WHERE subvenciones_total_eur > 0 AND espectadores > 0
   AND [criterio de antigüedad]
 ```
@@ -97,15 +102,15 @@ WHERE subvenciones_total_eur > 0 AND espectadores > 0
 
 | Ranking | Filtro de subvención mínima | Fuente |
 |---|---|---|
-| Top 50 (mayor alcance) | `subvenciones_total_eur > 5.000 €` | `icaa_fichas` |
-| Bottom 50 (menor alcance) | `subvenciones_total_eur > 50.000 €` | `icaa_fichas` |
+| Top 50 (mayor alcance) | `subvenciones_total_eur > 5.000 €` | `peliculas_calculadora` |
+| Bottom 50 (menor alcance) | `subvenciones_total_eur > 50.000 €` | `peliculas_calculadora` |
 
 El umbral inferior del Bottom es más alto para evitar que películas con subvenciones muy pequeñas (que estadísticamente no pueden haber sido rentables) distorsionen el ranking.
 
 ### Top / Bottom 20 Directores
 
 ```sql
-FROM icaa_fichas f
+FROM peliculas_calculadora f
 LEFT JOIN tmdb_gente g ON g.nombre_icaa = f.director
 WHERE f.subvenciones_total_eur > 0 AND [criterio de antigüedad]
 GROUP BY f.director, g.foto_url, g.popularidad, ...
@@ -121,7 +126,7 @@ El reparto se extrae mediante `jsonb_array_elements(ficha_artistica)` filtrando 
 
 ### Top / Bottom 20 Géneros
 
-Fuente: campo `genero` de `icaa_fichas`. Sin JOIN adicional (sin foto). Mínimo **5 películas** por género para evitar rankings con muestras demasiado pequeñas.
+Fuente: campo `genero` de `peliculas_calculadora`. Sin JOIN adicional (sin foto). Mínimo **5 películas** por género para evitar rankings con muestras demasiado pequeñas.
 
 ---
 
@@ -134,19 +139,19 @@ Fuente: campo `genero` de `icaa_fichas`. Sin JOIN adicional (sin foto). Mínimo 
 │ Sección            │ Tablas                                      │
 ├────────────────────┼────────────────────────────────────────────┤
 │ Perfil persona     │ tmdb_gente                                  │
-│ KPIs resumen       │ icaa_fichas                                 │
-│ Listado películas  │ icaa_fichas                                 │
-│ Media global       │ icaa_fichas                                 │
-│ Top/Bottom pelis   │ icaa_fichas                                 │
-│ Top/Bottom dirs    │ icaa_fichas + tmdb_gente                    │
-│ Top/Bottom actores │ icaa_fichas (JSONB) + tmdb_gente            │
-│ Top/Bottom géneros │ icaa_fichas                                 │
+│ KPIs resumen       │ peliculas_calculadora                       │
+│ Listado películas  │ peliculas_calculadora                       │
+│ Media global       │ peliculas_calculadora                       │
+│ Top/Bottom pelis   │ peliculas_calculadora                       │
+│ Top/Bottom dirs    │ peliculas_calculadora + tmdb_gente          │
+│ Top/Bottom actores │ peliculas_calculadora (JSONB) + tmdb_gente  │
+│ Top/Bottom géneros │ peliculas_calculadora                       │
 └────────────────────┴────────────────────────────────────────────┘
 ```
 
 ---
 
-## Campos clave de `icaa_fichas`
+## Campos clave de `peliculas_calculadora`
 
 | Campo | Tipo | Uso |
 |---|---|---|
@@ -156,10 +161,23 @@ Fuente: campo `genero` de `icaa_fichas`. Sin JOIN adicional (sin foto). Mínimo 
 | `genero` | TEXT | Búsqueda por género |
 | `ficha_artistica` | JSONB | Array de objetos `{nombre, funcion}` para búsqueda de actores |
 | `subvenciones_total_eur` | NUMERIC | Denominador de todos los ratios |
+| `subvenciones_oficiales_eur` | NUMERIC | Suma de resoluciones enlazadas; tiene prioridad |
+| `subvenciones_icaa_eur` | NUMERIC | Total original de la ficha, conservado para auditoría |
+| `fuente_subvenciones` | TEXT | `resoluciones_oficiales` o `ficha_icaa` |
 | `espectadores` | INTEGER | Numerador del ratio `esp/k€` |
 | `recaudacion_eur` | NUMERIC | Numerador del ratio `rec/€` |
 | `fecha_estreno` | DATE | Criterio de antigüedad (prioridad 1) |
 | `anio_produccion` | INTEGER | Criterio de antigüedad (prioridad 2) |
+
+`recaudacion_eur` y `espectadores` son el snapshot del total mostrado por la
+ficha ICAA cuando fue descargada. La calculadora no reconstruye esos totales
+sumando `top25` o `topespanol`. Si una película se reestrena, el incremento se
+incorpora únicamente después de volver a descargar y parsear su ficha actualizada.
+
+La cifra `popularidad` de TMDB que aparece junto a personas es un índice dinámico
+de visibilidad, no una puntuación artística ni una escala de 0 a 10. Para personas,
+TMDB indica que intervienen las visitas del día y el valor del día anterior. La web
+muestra el último valor guardado por el importador, no una consulta en tiempo real.
 
 ## Campos clave de `tmdb_gente`
 
@@ -168,7 +186,7 @@ Fuente: campo `genero` de `icaa_fichas`. Sin JOIN adicional (sin foto). Mínimo 
 | `nombre_icaa` | Clave de join con `icaa_fichas.director` / nombres del reparto |
 | `nombre_tmdb` | Nombre oficial en TMDB (para display) |
 | `foto_url` | Avatar en los rankings y perfil |
-| `popularidad` | Score TMDB, mostrado en benchmarks |
+| `popularidad` | Índice dinámico de visibilidad de TMDB, mostrado en benchmarks |
 | `biografia` | Texto expandible en el perfil de persona |
 | `fecha_nacimiento`, `lugar_nacimiento` | Metadata del perfil |
 | `imdb_id` | Enlace externo a IMDb |

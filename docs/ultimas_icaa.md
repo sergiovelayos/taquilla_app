@@ -1,7 +1,7 @@
 # Snapshot diario: "Últimas calificadas" del ICAA
 
 > Documentación técnica de `icaa_ultimas_calificadas.py` y la tabla `ultimas_icaa`.
-> Creado: julio 2026.
+> Creado: julio 2026. Flujo completo activado: agosto 2026.
 
 ---
 
@@ -9,13 +9,11 @@
 
 `https://infoicaa.mcu.es/CatalogoICAA/es-es/Peliculas/UltimasCalificadas` publica un listado
 (fijo, ~50 filas) de las películas calificadas más recientemente por el ICAA. Es una fuente
-potencialmente útil para detectar estrenos nuevos y cruzarlos cuanto antes con su ficha ICAA,
+utilizada para detectar estrenos nuevos y cruzarlos cuanto antes con su ficha ICAA,
 sin esperar al barrido masivo por rango de IDs (`scrape_icaa.py`).
 
-De momento **no se conoce la frecuencia real de actualización** de esa página. El propósito
-inicial de este proceso es puramente observacional: tomar una foto diaria y, con `fecha_insercion`
-frente a `last_update`, medir cada cuánto aparecen filas nuevas o cambia el contenido de las
-existentes. Con esos datos se podrá ajustar la frecuencia del cron a lo estrictamente necesario.
+El proceso conserva el historial observado y descarga también la ficha completa de
+cada expediente nuevo o todavía incompleto.
 
 ## Script
 
@@ -44,9 +42,9 @@ CREATE TABLE ultimas_icaa (
 );
 ```
 
-`expediente_icaa` es el mismo espacio de IDs que `icaa_fichas` / `scrape_icaa`, así que en el
-futuro se puede cruzar directamente por esa clave para traer la ficha completa en cuanto
-aparezca una película nueva en este listado.
+`expediente_icaa` es el mismo espacio de IDs que `icaa_fichas` / `scrape_icaa`.
+`icaa_downloader.py --latest` hace ese cruce y descarga solo los que faltan o
+siguen sin director.
 
 Al ser upsert por `expediente_icaa`, si una fila deja de aparecer en el listado (porque ya
 salieron 50 más recientes) **no se borra** — `ultimas_icaa` acumula histórico de todo lo visto,
@@ -60,10 +58,41 @@ que en invierno pasará a ser 7:00 hora España — ajustar la hora del cron si 
 fija las 8:00 todo el año):
 
 ```
-0 6 * * * cd /home/sergio/taquilla_app && ./venv/bin/python3 icaa_ultimas_calificadas.py >> logs/ultimas_icaa.log 2>&1
+0 6 * * * cd /home/sergio/taquilla_app && ./run_icaa_update.sh >> logs/ultimas_icaa.log 2>&1
 ```
 
-Log: `logs/ultimas_icaa.log` en el servidor.
+El wrapper actualiza `ultimas_icaa`, descarga temporalmente las fichas recientes
+pendientes y ejecuta `icaa_parser.py --delete-parsed`. Cada HTML se elimina al
+terminar el intento; si falla, la ficha queda pendiente y se vuelve a descargar
+en la siguiente ejecución. Log: `logs/ultimas_icaa.log` en el servidor.
+
+## Ejecución manual y verificación
+
+```bash
+cd /home/sergio/taquilla_app
+
+# Flujo completo
+./run_icaa_update.sh
+
+# Ver qué descargaría, sin escribir ni descargar
+./venv/bin/python3 icaa_downloader.py --latest --dry-run
+
+# Revisar la última ejecución
+tail -n 100 logs/ultimas_icaa.log
+```
+
+La ejecución de recuperación del 10 de agosto de 2026 importó 123 fichas y
+terminó con cero errores. Una ejecución al día debe dejar el dry-run de
+`--latest` en cero pendientes, salvo fichas publicadas después del cron.
+
+## Efecto en matching
+
+No existe una caché de matching que haya que refrescar. `/admin/matching`
+consulta directamente `icaa_fichas`, por lo que las altas nuevas:
+
+- pueden resolver automáticamente títulos de **Películas ICAA** por título normalizado;
+- pasan a ser candidatos de **Subvenciones (raw)**;
+- aparecen en **Películas TMDB** hasta guardar un vínculo o marcarlas sin TMDB.
 
 ## Cómo evaluar la frecuencia real
 

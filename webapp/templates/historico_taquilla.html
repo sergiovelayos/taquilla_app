@@ -38,6 +38,51 @@
             background: white; border-radius: 12px;
             padding: 1rem 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
+        .year-ranking-control {
+            background: white;
+            border: 2px solid rgba(233, 69, 96, 0.2);
+            border-left: 6px solid var(--color-accent);
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            box-shadow: 0 4px 14px rgba(26, 26, 46, 0.08);
+        }
+        .year-control-label {
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--color-accent);
+            margin-bottom: 0.2rem;
+        }
+        .year-control-title {
+            color: var(--color-primary);
+            font-weight: 800;
+            font-size: 1.15rem;
+            line-height: 1.25;
+        }
+        .year-control-selected {
+            color: var(--color-primary);
+            font-size: 2rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+        .year-control-select {
+            min-width: 8.5rem;
+            border: 2px solid var(--color-accent);
+            color: var(--color-primary);
+            font-size: 1rem;
+            font-weight: 800;
+            padding: 0.5rem 2.4rem 0.5rem 0.75rem;
+            box-shadow: 0 2px 8px rgba(233, 69, 96, 0.15);
+        }
+        .year-control-select:focus {
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 0.2rem rgba(233, 69, 96, 0.18);
+        }
+        @media (max-width: 575.98px) {
+            .year-control-selected { font-size: 1.65rem; }
+            .year-control-select { width: 100%; }
+        }
 
         /* Tab pills */
         .nav-pills .nav-link { color: var(--color-primary); font-weight: 600; border-radius: 8px; padding: 0.5rem 1.2rem; }
@@ -294,97 +339,159 @@
         </p>
     </div>
 
-    <!-- Selector Toda la Cartelera / Cine Español -->
-    <div class="week-selector d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
-        <div>
-            <ul class="nav nav-pills">
-                <li class="nav-item">
-                    <a class="nav-link {% if tab == 'top25' %}active{% endif %}" href="?tab=top25">
-                        <i class="bi bi-trophy"></i> Toda la Cartelera
-                    </a>
-                </li>
-                <li class="nav-item ms-1">
-                    <a class="nav-link {% if tab == 'topespanol' %}active{% endif %}" href="?tab=topespanol">
-                        <i class="bi bi-flag"></i> Cine Español
-                    </a>
-                </li>
-            </ul>
-        </div>
-        <div style="font-size:0.8rem; color:var(--color-muted); max-width:420px;">
-            <i class="bi bi-info-circle"></i>
-            Afecta a Rankings Acumulados. El Informe Anual ICAA y la Distribución Percentil son siempre de cine español.
-        </div>
-    </div>
-
     <!-- ============================================================ -->
     <!-- Top Year + Top Histórico                                     -->
     <!-- ============================================================ -->
-    <h5 class="fw-bold mb-3">
-        <i class="bi bi-star-fill"></i> Rankings Acumulados
-        <span class="badge" style="background:var(--color-primary); color:white; font-weight:600; font-size:0.7rem; vertical-align:middle;">{% if tab == 'top25' %}Toda la Cartelera{% else %}Cine Español{% endif %}</span>
-    </h5>
+    <div class="year-ranking-control mb-3">
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+            <div>
+                <div class="year-control-label">Selector principal de la sección</div>
+                <div class="year-control-title">
+                    <i class="bi bi-calendar-event" style="color:var(--color-accent);"></i>
+                    Películas estrenadas en
+                    <span class="year-control-selected">{{ selected_year }}</span>
+                </div>
+                <div style="font-size:0.84rem; color:var(--color-muted); margin-top:0.25rem;">
+                    Las dos clasificaciones de cine español y extranjero se recalculan al cambiar este año.
+                </div>
+            </div>
+            {% if available_years and available_years | length > 1 %}
+            <div style="min-width:10rem;">
+                <label for="topYearSelect" class="form-label mb-1" style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:var(--color-primary);">
+                    Año
+                </label>
+                <select id="topYearSelect" class="form-select year-control-select"
+                        onchange="window.location.href='?year='+this.value;">
+                    {% for y in available_years %}
+                    <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <p class="mb-3" style="font-size:0.86rem; color:var(--color-muted);">
+        Estas clasificaciones se ordenan por espectadores. Cine español: se usa el
+        <a href="https://www.cultura.gob.es/cultura/areas/cine/datos/taquilla-espectadores.html" target="_blank" rel="noopener">Histórico de taquilla y espectadores en España</a>
+        hasta 2025; para 2026 se usa la tabla semanal <code>topespanol</code>.
+        Cine extranjero: se usan los
+        <a href="https://www.cultura.gob.es/cultura/areas/cine/mc/anuario-cine/portada.html" target="_blank" rel="noopener">Anuarios de Cine del Ministerio</a>
+        hasta 2023; para 2024, 2025 y 2026 la clasificación se calcula desde la tabla semanal <code>top25</code>.
+    </p>
     <div class="row g-4 mb-4">
         <div class="col-12 col-lg-6">
             <div class="card-block">
-                <div class="card-block-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
-                    <span>
-                        <i class="bi bi-calendar-event"></i>
-                        Top {{ selected_year }} — {% if tab == 'topespanol' %}Cine Español{% else %}Toda la Cartelera{% endif %}
-                    </span>
-                    {% if available_years and available_years | length > 1 %}
-                    <select class="form-select form-select-sm" style="width:auto; font-size:0.78rem; padding:0.2rem 1.8rem 0.2rem 0.5rem;"
-                            onchange="window.location.href='?tab={{ tab }}&year='+this.value;">
-                        {% for y in available_years %}
-                        <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
-                        {% endfor %}
-                    </select>
-                    {% endif %}
+                <div class="card-block-header">
+                    <i class="bi bi-flag"></i> Más taquilleras — cine español
                 </div>
-                {% if top_year %}
+                {% if top_year_espanolas %}
                 <ul class="top-list">
-                    {% for r in top_year %}
+                    {% for r in top_year_espanolas %}
                     <li>
                         <span class="top-rank {% if loop.index <= 3 %}rank-{{ loop.index }}{% else %}rank-other{% endif %}">{{ loop.index }}</span>
                         <div class="top-info">
                             <div class="top-title" title="{{ r.titulo }}">{{ r.titulo }}</div>
-                            <div class="top-meta">{{ r.distribuidora }} · {{ r.semanas_en_cartelera }} sem. · <i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
+                            <div class="top-meta"><i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
                         </div>
                         <div class="top-amount">
-                            {{ r.recaudacion_total | euros }}
-                            <div class="top-esp">{{ r.espectadores_total | number }} esp.</div>
+                            {{ r.espectadores_total | number }} esp.
+                            <div class="top-esp">{{ r.recaudacion_total | euros }}</div>
                         </div>
                     </li>
                     {% endfor %}
                 </ul>
                 {% else %}
-                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos para {{ selected_year }}</div>
+                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos españoles para {{ selected_year }}</div>
                 {% endif %}
             </div>
         </div>
         <div class="col-12 col-lg-6">
             <div class="card-block">
                 <div class="card-block-header">
-                    <i class="bi bi-star"></i>
-                    Top Histórico — {% if tab == 'topespanol' %}Cine Español{% else %}Toda la Cartelera{% endif %}
+                    <i class="bi bi-globe2"></i> Más taquilleras — cine extranjero
                 </div>
-                {% if top_historico %}
+                {% if top_year_extranjeras %}
                 <ul class="top-list">
-                    {% for r in top_historico %}
+                    {% for r in top_year_extranjeras %}
                     <li>
                         <span class="top-rank {% if loop.index <= 3 %}rank-{{ loop.index }}{% else %}rank-other{% endif %}">{{ loop.index }}</span>
                         <div class="top-info">
                             <div class="top-title" title="{{ r.titulo }}">{{ r.titulo }}</div>
-                            <div class="top-meta">{{ r.distribuidora }} · {{ r.semanas_en_cartelera }} sem. · <i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
+                            <div class="top-meta"><i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
                         </div>
                         <div class="top-amount">
-                            {{ r.recaudacion_total | euros }}
-                            <div class="top-esp">{{ r.espectadores_total | number }} esp.</div>
+                            {{ r.espectadores_total | number }} esp.
+                            <div class="top-esp">{{ r.recaudacion_total | euros }}</div>
                         </div>
                     </li>
                     {% endfor %}
                 </ul>
                 {% else %}
-                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos históricos</div>
+                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos extranjeros para {{ selected_year }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <h5 class="fw-bold mb-3 mt-5">
+        <i class="bi bi-star-fill"></i> Top histórico por espectadores
+        <span class="badge" style="background:var(--color-primary); color:white; font-weight:600; font-size:0.7rem; vertical-align:middle;">anuarios_gold</span>
+    </h5>
+    <p class="mb-3" style="font-size:0.86rem; color:var(--color-muted);">
+        En el ranking histórico se muestra una sola fila por película: el mayor dato de espectadores disponible en los
+        <a href="https://www.cultura.gob.es/cultura/areas/cine/mc/anuario-cine/portada.html" target="_blank" rel="noopener">Anuarios de Cine del Ministerio</a>.
+        La serie de anuarios cargada llega hasta 2023.
+    </p>
+    <div class="row g-4 mb-4">
+        <div class="col-12 col-lg-6">
+            <div class="card-block">
+                <div class="card-block-header">
+                    <i class="bi bi-flag"></i> Top 25 histórico — cine español
+                </div>
+                {% if top_historico_espanolas %}
+                <ul class="top-list">
+                    {% for r in top_historico_espanolas %}
+                    <li>
+                        <span class="top-rank {% if loop.index <= 3 %}rank-{{ loop.index }}{% else %}rank-other{% endif %}">{{ loop.index }}</span>
+                        <div class="top-info">
+                            <div class="top-title" title="{{ r.titulo }}">{{ r.titulo }}</div>
+                            <div class="top-meta">Dato anuario {{ r.anio_anuario }} · <i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
+                        </div>
+                        <div class="top-amount">
+                            {{ r.espectadores_total | number }} esp.
+                            <div class="top-esp">{{ r.recaudacion_total | euros }}</div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos históricos españoles</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-12 col-lg-6">
+            <div class="card-block">
+                <div class="card-block-header">
+                    <i class="bi bi-globe2"></i> Top 25 histórico — cine extranjero
+                </div>
+                {% if top_historico_extranjeras %}
+                <ul class="top-list">
+                    {% for r in top_historico_extranjeras %}
+                    <li>
+                        <span class="top-rank {% if loop.index <= 3 %}rank-{{ loop.index }}{% else %}rank-other{% endif %}">{{ loop.index }}</span>
+                        <div class="top-info">
+                            <div class="top-title" title="{{ r.titulo }}">{{ r.titulo }}</div>
+                            <div class="top-meta">Dato anuario {{ r.anio_anuario }} · <i class="bi bi-calendar3" style="font-size:0.7rem;"></i> {{ r.fecha_estreno | date }}</div>
+                        </div>
+                        <div class="top-amount">
+                            {{ r.espectadores_total | number }} esp.
+                            <div class="top-esp">{{ r.recaudacion_total | euros }}</div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-4 text-muted" style="font-size:0.85rem;">Sin datos históricos extranjeros</div>
                 {% endif %}
             </div>
         </div>
@@ -399,15 +506,18 @@
         <i class="bi bi-journal-text" style="color:var(--color-accent)"></i> Ranking Anual Oficial ICAA — Cine Español
         <span class="badge text-bg-light border" style="font-weight:500; font-size:0.68rem; vertical-align:middle;" title="No cambia con el selector de arriba">independiente del selector</span>
     </h5>
+    <p class="mb-3" style="font-size:0.86rem; color:var(--color-muted);">
+        Esta tabla expone los mismos datos de <code>anual_esp</code> sin modificar su estructura; solo se ha ampliado la serie con anuarios anteriores a 2016.
+    </p>
 
     <!-- Buscador de películas -->
     <div class="card-block mb-4" id="anualSearchBlock">
         <div class="card-block-header">
-            <i class="bi bi-search"></i> Buscador — más de 4.000 películas entre 2016 y 2025
+            <i class="bi bi-search"></i> Buscador — más de 9.000 películas entre 2003 y 2025
         </div>
         <div class="p-3">
             <div style="position:relative;">
-                <input type="text" id="anualSearchInput" placeholder="Busca por título o distribuidora…"
+                <input type="text" id="anualSearchInput" placeholder="Busca por título…"
                        autocomplete="off"
                        style="width:100%; padding:0.55rem 2.5rem 0.55rem 0.85rem;
                               border:1.5px solid #dee2e6; border-radius:8px;
@@ -466,14 +576,13 @@
                     <tr>
                         <th style="width:2.5rem" class="text-center">#</th>
                         <th>Título</th>
-                        <th>Distribuidora</th>
                         <th class="text-center" style="width:7rem">Estreno</th>
                         <th class="text-end" style="width:8rem">Recaudación</th>
                         <th class="text-end" style="width:7.5rem">Espectadores</th>
                     </tr>
                 </thead>
                 <tbody id="anualTbody">
-                    <tr><td colspan="6" class="text-center text-muted py-4">
+                    <tr><td colspan="5" class="text-center text-muted py-4">
                         <span class="spinner-border spinner-border-sm me-2" role="status"></span>Cargando…
                     </td></tr>
                 </tbody>
@@ -650,7 +759,7 @@
     function renderTable(rows) {
         const tbody = document.getElementById('anualTbody');
         if (!rows || rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Sin datos para este año.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Sin datos para este año.</td></tr>';
             return;
         }
 
@@ -670,7 +779,6 @@
             return `<tr>
                 <td class="text-center">${rankBadge(r.rank)}</td>
                 <td><div class="movie-title">${r.titulo}</div></td>
-                <td style="font-size:0.82rem; color:var(--color-muted);">${r.distribuidora}</td>
                 <td class="text-center" style="font-size:0.82rem;">${fmtDate(r.fecha_estreno)}</td>
                 <td class="text-end">${recBar}</td>
                 <td class="text-end" style="font-size:0.82rem;">${fmtNum(r.espectadores)}</td>
@@ -680,13 +788,13 @@
 
     function loadData() {
         const tbody = document.getElementById('anualTbody');
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Cargando…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Cargando…</td></tr>';
 
         fetch(`/api/anual?anio=${currentAnio}&orden=${currentOrden}`)
             .then(r => r.json())
             .then(data => renderTable(data.rows))
             .catch(() => {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">Error cargando los datos.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Error cargando los datos.</td></tr>';
             });
     }
 
@@ -757,7 +865,6 @@
                                 <th style="padding:0.35rem 0.5rem; text-align:left;">Año</th>
                                 <th style="padding:0.35rem 0.5rem; text-align:center;">Rank</th>
                                 <th style="padding:0.35rem 0.5rem; text-align:left;">Título</th>
-                                <th style="padding:0.35rem 0.5rem; text-align:left; white-space:nowrap;">Distribuidora</th>
                                 <th style="padding:0.35rem 0.5rem; text-align:center; white-space:nowrap;">Estreno</th>
                                 <th style="padding:0.35rem 0.5rem; text-align:right; white-space:nowrap;">Recaudación</th>
                                 <th style="padding:0.35rem 0.5rem; text-align:right; white-space:nowrap;">Espectadores</th>
@@ -776,7 +883,6 @@
                                     </span>
                                 </td>
                                 <td style="padding:0.4rem 0.5rem; font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.titulo}">${r.titulo}</td>
-                                <td style="padding:0.4rem 0.5rem; color:var(--color-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.distribuidora}</td>
                                 <td style="padding:0.4rem 0.5rem; text-align:center; color:var(--color-muted);">${fmtDate(r.fecha_estreno)}</td>
                                 <td style="padding:0.4rem 0.5rem; text-align:right; font-weight:600;">${fmtEur(r.recaudacion)}</td>
                                 <td style="padding:0.4rem 0.5rem; text-align:right; color:var(--color-muted);">${fmtNum(r.espectadores)}</td>

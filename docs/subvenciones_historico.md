@@ -98,14 +98,14 @@ Fuente: [Estadística de Cinematografía — Recaudación por nacionalidad](http
 
 ### Tabla de detalle `subvenciones`
 
-La tabla interactiva de películas situada bajo el gráfico no usa el CSV en memoria, sino la tabla PostgreSQL `subvenciones`. Para mostrar enlaces a `/pelicula/<expediente_icaa>`, la consulta combina:
+La tabla interactiva usa `subvenciones_resueltas`, que prioriza el match por
+`subvencion_id`, conserva como compatibilidad los matches antiguos por título y
+distingue los estados `matched`, `review`, `pending_ficha` y `sin_ficha`.
 
-- `subvenciones.expediente_icaa`, cuando ya existe;
-- `subvenciones_icaa_matches.expediente_icaa`, cuando el enlace se resolvió manualmente desde `/admin/matching`.
-
-La relación manual usa `subvenciones_icaa_matches.titulo_subvencion = subvenciones.titulo` y se documenta en `docs/matching_web.md`.
-
-Los IDs de la tabla puente pueden existir en el catálogo oficial del ICAA aunque todavía no estén importados en el subset local `icaa_fichas`. En ese caso la tabla muestra un enlace externo al catálogo ICAA; cuando sí hay ficha local, enlaza a `/pelicula/<id>`.
+La ficha se comprueba contra `icaa_catalogo`, catálogo canónico formado por
+`icaa_fichas` y `scrape_icaa`. Por tanto, una ficha ya parseada por el barrido
+histórico se considera local aunque no se hubiera copiado al antiguo subset
+`icaa_fichas`.
 
 ---
 
@@ -164,33 +164,22 @@ Desde 2018 se usa directamente la página de [ayudas a la producción](https://w
 
 ### Matching `subvenciones_raw` × `scrape_icaa` × `subvenciones`
 
-Para vincular cada título de `subvenciones_raw` con su expediente ICAA se hizo un cruce en dos
-pasadas (normalización de título estilo `TITLE_NORM_SQL`, ver `docs/matching_web.md`):
+El proceso vigente es `scripts/subvenciones_matching_local.py`. Trabaja primero
+contra `icaa_catalogo`, que incluye `icaa_fichas` y `scrape_icaa`, y no usa Brave.
 
-1. Título normalizado contra `scrape_icaa` → único candidato, varios candidatos ambiguos
-   (desempatados por año de producción más cercano) o ningún candidato.
-2. Para lo que no dio match único, cruce adicional contra `subvenciones` (que ya trae
-   `expediente_icaa` curado en ~474 filas) — se comprobó que cuando esta fuente está disponible,
-   discrepa siempre del candidato elegido solo por año, así que se prioriza sobre el heurístico.
+- Match automático: título normalizado único y año compatible con el tipo de ayuda.
+- Revisión: homónimos, candidatos sin año o coincidencias difusas.
+- `pending_ficha`: proyectos recientes cuya ficha puede no haberse publicado.
+- `sin_ficha`: ausencia confirmada manualmente.
 
-De los 1988 títulos distintos, esto deja ~612 sin resolver de forma fiable (ambiguos sin
-confirmar y sin ningún candidato) que requieren revisión manual.
+Las decisiones se guardan por `subvencion_id` con confianza, método y notas. La
+cola `/admin/matching?tab=subvenciones` muestra el mejor candidato local y permite
+confirmar el expediente o cambiar el estado. Los matches resueltos se propagan a
+`subvenciones_raw_icaa_matches` cuando coinciden título normalizado y año.
 
-**Herramienta de revisión: artifact "Matching subvenciones_raw × scrape_icaa × subvenciones"**
-
-Es una página HTML autocontenida publicada en claude.ai (no vive en el repo ni en el servidor),
-con una tabla por categoría (match único, ambiguo resuelto por subvenciones, ambiguo resuelto
-por año, ambiguo sin resolver, sin match resuelto por subvenciones, sin match definitivo),
-buscador y orden por columna. Las tres categorías sin resolución fiable tienen un campo de
-texto para teclear el expediente ICAA correcto (o marcarlo como "sin ficha" si se confirma que
-no existe), y un botón "Generar SQL" que produce los `INSERT ... ON CONFLICT` listos para
-`subvenciones_icaa_matches`.
-
-- Las ediciones se guardan en el `localStorage` del navegador (por dispositivo/perfil, no
-  sincronizado) — el SQL generado hay que copiarlo o descargarlo y aplicarlo a mano contra la
-  base de datos; el artifact no escribe directo en Postgres.
-- URL: (privada, pedir enlace en la conversación donde se creó; se puede seguir actualizando en
-  el mismo enlace en conversaciones futuras).
+El 20-08-2026 quedaron 1.402 de 2.123 subvenciones enlazadas. En 2006 la
+cobertura pasó de 3 a 90 de 118; los 28 casos restantes quedan visibles para
+revisión, sin aceptar automáticamente el candidato por año.
 
 ---
 

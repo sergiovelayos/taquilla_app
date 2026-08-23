@@ -117,6 +117,12 @@
             <i class="bi bi-film me-2"></i>Insights Taquilla España
         </a>
         <div class="navbar-nav me-auto gap-1">
+            <a class="nav-link" href="/">
+                <i class="bi bi-bar-chart-fill"></i> Taquilla Semanal
+            </a>
+            <a class="nav-link" href="/historico-taquilla">
+                <i class="bi bi-clock-history"></i> Histórico Taquilla
+            </a>
             <a class="nav-link active" href="/calculadora">
                 <i class="bi bi-calculator"></i> Calculadora Subvenciones
             </a>
@@ -124,7 +130,6 @@
                 <i class="bi bi-clock-history"></i> Histórico Subvenciones
             </a>
         </div>
-        <a class="nav-link" href="/">Inicio</a>
     </div>
 </nav>
 
@@ -143,7 +148,10 @@
             <p class="text-muted mb-0">
                 Analiza la recaudación y subvenciones acumuladas por director, actor, película o género. 
                 <span class="d-block small mt-1">
-                    <i class="bi bi-info-circle me-1"></i> Esta es una <strong>selección parcial</strong> de películas del Catálogo del ICAA con datos de subvenciones. 
+                    <i class="bi bi-info-circle me-1"></i> Combina las fichas del Catálogo del ICAA con las ayudas publicadas en las resoluciones oficiales. Cuando existe una ayuda enlazada, su importe oficial tiene prioridad sobre el total incluido en la ficha.
+                </span>
+                <span class="d-block small mt-1">
+                    <i class="bi bi-cash-coin me-1"></i> La recaudación y los espectadores proceden del total publicado en la ficha ICAA en su última descarga. No se suman aparte las semanas de Comscore; un reestreno solo se refleja cuando esa ficha vuelve a descargarse ya actualizada.
                 </span>
                 <span class="d-block small text-accent fw-medium mt-1">
                     <i class="bi bi-exclamation-circle me-1"></i> <strong>Nota:</strong> Se excluyen del resumen de impacto las películas estrenadas en los <strong>últimos 2 meses</strong> para asegurar que los benchmarks se basan en datos de taquilla ya consolidados.
@@ -219,8 +227,9 @@
                         </div>
                         <div class="d-flex gap-2 flex-wrap">
                             {% if persona_tmdb.popularidad %}
-                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle fs-6 px-3 py-2">
-                                ⭐ {{ "%.1f"|format(persona_tmdb.popularidad) }}
+                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle fs-6 px-3 py-2"
+                                  title="Índice dinámico de visibilidad en TMDB; no es una nota sobre su trabajo ni una escala de 0 a 10">
+                                Popularidad TMDB: {{ "%.1f"|format(persona_tmdb.popularidad) }}
                             </span>
                             {% endif %}
                             {% if persona_tmdb.imdb_id %}
@@ -362,7 +371,7 @@
         <div class="row mb-4">
             <div class="col-md-8">
                 <h3 class="fw-bold"><i class="bi bi-graph-up-arrow text-accent me-2"></i>Benchmarks de Referencia</h3>
-                <p class="text-muted small">Rankings de eficiencia del gasto público en el cine español. <strong>Datos parciales:</strong> la base de datos no está completa — solo se tienen en cuenta las películas cuya ficha en el catálogo del ICAA incluye información de subvenciones, lo que representa aproximadamente <strong>700 películas</strong>. Los resultados reflejan una parte de la industria, no la totalidad. Pulsa sobre cualquier nombre para analizar su filmografía en detalle.</p>
+                <p class="text-muted small">Rankings de eficiencia del gasto público en el cine español. Se combinan las ayudas oficiales ya enlazadas con las subvenciones publicadas en las fichas ICAA; los proyectos pendientes de ficha o estreno no entran en los ratios de taquilla. Pulsa sobre cualquier nombre para analizar su filmografía en detalle.</p>
             </div>
             <div class="col-md-4 text-md-end">
                 <div class="p-3 bg-white rounded shadow-sm border">
@@ -436,7 +445,8 @@
 
         <!-- Directores y actores por espectadores totales -->
         <h5 class="mb-3 text-primary fw-bold"><i class="bi bi-people-fill me-2"></i>Directores y actores/actrices con más público en películas subvencionadas — Top 20</h5>
-        <p class="text-muted small mb-3">Ordenado por espectadores totales acumulados en sus películas con subvención registrada en el ICAA. Solo se consideran personas con un mínimo de 2 películas. Junto al total de espectadores se muestran sus métricas de eficiencia (esp/k€ y rec/€).</p>
+        <p class="text-muted small mb-1">Ordenado por espectadores totales acumulados en sus películas con subvención registrada. Solo se consideran personas con un mínimo de 2 películas. Junto al total de espectadores se muestran sus métricas de eficiencia (esp/k€ y rec/€).</p>
+        <p class="text-muted small mb-3"><strong>Popularidad TMDB</strong> es un índice dinámico de visibilidad basado, para personas, en las visitas recientes y el valor del día anterior. No es una valoración artística, no es una nota media y no tiene una escala máxima de 10; por eso valores aparentemente bajos son normales. Aquí se muestra el último valor sincronizado con TMDB, no una consulta en tiempo real. <a href="https://developer.themoviedb.org/docs/popularity-and-trending" target="_blank" rel="noopener">Metodología de TMDB</a>.</p>
         <div class="row g-4 mb-5">
             {# ── Directores con foto ── #}
             <div class="col-lg-6">
@@ -457,7 +467,7 @@
                                 <div class="person-details">
                                     <span>{{ b.num_pelis }} peli{{ 's' if b.num_pelis != 1 }}</span>
                                     {% if b.anio_nacimiento %}<span class="sep">·</span><span>{{ b.anio_nacimiento }}</span>{% endif %}
-                                    {% if b.popularidad %}<span class="sep">·</span><span>⭐ {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
+                                    {% if b.popularidad %}<span class="sep">·</span><span title="Popularidad dinámica de TMDB; no es una nota">TMDB {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
                                 </div>
                             </div>
                             <div class="text-end flex-shrink-0">
@@ -488,7 +498,7 @@
                                 <div class="person-details">
                                     <span>{{ b.num_pelis }} peli{{ 's' if b.num_pelis != 1 }}</span>
                                     {% if b.anio_nacimiento %}<span class="sep">·</span><span>{{ b.anio_nacimiento }}</span>{% endif %}
-                                    {% if b.popularidad %}<span class="sep">·</span><span>⭐ {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
+                                    {% if b.popularidad %}<span class="sep">·</span><span title="Popularidad dinámica de TMDB; no es una nota">TMDB {{ "%.1f"|format(b.popularidad) }}</span>{% endif %}
                                 </div>
                             </div>
                             <div class="text-end flex-shrink-0">

@@ -8,7 +8,10 @@ import os
 import re
 import csv
 import ssl
+import tempfile
+import time
 import urllib.request
+import urllib.parse
 import logging
 from datetime import date
 from pathlib import Path
@@ -50,16 +53,53 @@ log = logging.getLogger(__name__)
 # ── HTTP ────────────────────────────────────────────────────
 
 def fetch_html(url):
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    """Fetch the index bypassing the Ministry/CDN cached copy."""
+    separator = '&' if urllib.parse.urlsplit(url).query else '?'
+    cache_busted_url = f'{url}{separator}_taquilla_ts={time.time_ns()}'
+    req = urllib.request.Request(cache_busted_url, headers={
+        'User-Agent': 'Mozilla/5.0',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+    })
     with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as r:
         return r.read().decode('utf-8', errors='replace')
 
-def download_pdf(url, dest: Path) -> bool:
-    if dest.exists():
+
+def is_valid_pdf(path: Path) -> bool:
+    """A cached download is reusable only when it has a PDF signature."""
+    try:
+        with path.open('rb') as f:
+            return f.read(5) == b'%PDF-'
+    except OSError:
         return False
+
+
+def download_pdf(url, dest: Path) -> bool:
+    """Download atomically, replacing cached HTML/JSON error responses."""
+    if is_valid_pdf(dest):
+        return False
+
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as r:
-        dest.write_bytes(r.read())
+    temp_path = None
+    try:
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=30) as r:
+            with tempfile.NamedTemporaryFile(
+                mode='wb', dir=dest.parent, prefix=f'.{dest.name}.',
+                suffix='.tmp', delete=False,
+            ) as tmp:
+                temp_path = Path(tmp.name)
+                while True:
+                    chunk = r.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+
+        if not is_valid_pdf(temp_path):
+            raise ValueError(f'Downloaded response is not a PDF: {url}')
+        os.replace(temp_path, dest)
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
     return True
 
 # ── HTML scraping ───────────────────────────────────────────

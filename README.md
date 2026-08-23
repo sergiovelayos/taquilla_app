@@ -32,7 +32,8 @@ Pipeline integral de ingesta, enriquecimiento y visualización de datos de taqui
 - **Modo de Red**: `host` (acceso directo a PostgreSQL 16).
 - **Puertos**: Aplicación escuchando en el **5002**.
 - **Acceso Externo**: Túnel Cloudflare (`taquilla.hookponent.cc`).
-- **Actualización**: Orquestada por `run_update.sh` mediante Cron (Lunes 09:00).
+- **Actualización**: taquilla semanal mediante `run_update.sh` y fichas ICAA
+  diarias mediante `run_icaa_update.sh`.
 
 ---
 
@@ -41,10 +42,12 @@ Pipeline integral de ingesta, enriquecimiento y visualización de datos de taqui
 | Script | Propósito |
 | :--- | :--- |
 | `update.py` | Motor de ingesta: descarga y parsea PDFs de Comscore. |
-| `icaa_downloader.py` | Descarga masiva y concurrente de HTMLs desde la sede del MCU. |
-| `icaa_parser.py` | Extrae metadatos (Director, Reparto, Ayudas) de los HTMLs a la DB. |
+| `icaa_downloader.py` | Descarga temporalmente fichas HTML desde la sede del MCU. |
+| `icaa_parser.py` | Extrae los datos y, con `--delete-parsed`, elimina el HTML tras el commit. |
 | `tmdb_enricher.py` | Enriquecimiento con pósters y sinopsis vía API TMDB. |
 | `run_update.sh` | Script maestro para ejecución semanal completa. |
+| `run_icaa_update.sh` | Snapshot, descarga, parseo y matching local diario de fichas ICAA recientes. |
+| `scripts/subvenciones_matching_local.py` | Une subvenciones con el catálogo local; tiene `--dry-run` y no usa Brave. |
 | `reconstruct_csv.py` | Genera backups consolidados en formato CSV. |
 | `scrape_icaa.py` | Barrido por rango de IDs del catálogo ICAA → tabla `scrape_icaa`. |
 
@@ -60,6 +63,9 @@ Base de datos: `comscore`
 - **`processed_pdfs`**: Auditoría de ingesta.
 - **`scrape_icaa`**: Fichas descubiertas por barrido de IDs (misma estructura que `icaa_fichas`).
 - **`scrape_icaa_progress`**: Registro de IDs ya probados en el barrido (permite reanudar).
+- **`icaa_catalogo_cache` / `icaa_catalogo`**: Catálogo canónico y rápido que combina `icaa_fichas` con `scrape_icaa`.
+- **`subvenciones_resueltas`**: Ayudas con expediente, estado, confianza y método de matching.
+- **`peliculas_calculadora`**: Fichas canónicas con prioridad para los importes de resoluciones oficiales.
 
 ---
 
@@ -100,22 +106,28 @@ razonar sobre rangos.
 
 ```bash
 # Prueba (dry-run, no escribe en BBDD)
-docker exec taquilla-webapp python3 scrape_icaa.py --start 135400 --end 135410 --dry-run
+./venv/bin/python3 scrape_icaa.py --start 135400 --end 135410 --dry-run
 
-# Barrido largo dentro de tmux (sobrevive al cierre de la terminal)
-tmux new -s scraper
-docker exec taquilla-webapp python3 scrape_icaa.py --start 1 --end 999430 --delay 2 --delay-max 4 2>&1 | tee -a ~/scrape_icaa.log
-# Salir sin parar: Ctrl+b, d — volver: tmux attach -t scraper
+# Conectar al servidor y recuperar la sesión existente
+ssh ubuntu
+tmux attach -t scraper
+
+# Ventanas: Ctrl+b 0 (log del barrido), Ctrl+b 1 (shell)
+# Salir sin detener nada: Ctrl+b, d
+
+# Si el proceso murió, detener primero el tail con Ctrl+c y relanzar el mismo rango.
+# scrape_icaa_progress evita repetir IDs ya resueltos:
+cd /home/sergio/taquilla_app
+./venv/bin/python3 scrape_icaa.py --start 100000 --end 999430 \
+  --delay 2 --delay-max 4 2>&1 | tee -a scrape_icaa_range2.log
 
 # Argumentos: --start / --end (rango, obligatorios), --delay / --delay-max,
-#             --limit N, --dry-run, --no-save-html
+#             --limit N, --dry-run. Los HTML no se conservan por defecto;
+#             --save-html existe solo para depuración puntual.
 ```
 
-> El contenedor usa `COPY` (no monta el volumen), así que tras cada
-> `docker-compose up -d --build` hay que recopiar el script si no se ha
-> reconstruido la imagen:
-> `docker cp ~/taquilla_app/scrape_icaa.py taquilla-webapp:/app/`
-> (y `icaa_parser.py` si tampoco está en la imagen).
+El barrido largo actual se ejecuta con el `venv` del host, desde
+`/home/sergio/taquilla_app`; no necesita `docker exec`.
 
 ---
 
@@ -128,7 +140,8 @@ docker exec taquilla-webapp python3 scrape_icaa.py --start 1 --end 999430 --dela
 
 ### Comandos Comunes
 - **Actualización manual completa**: `./run_update.sh`
-- **Sincronizar fichas ICAA pendientes**: `python3 icaa_downloader.py`
+- **Sincronizar fichas ICAA recientes**: `./run_icaa_update.sh`
+- **Previsualizar matching local de subvenciones**: `./venv/bin/python scripts/subvenciones_matching_local.py --dry-run`
 - **Enriquecer con artes de TMDB**: `python3 tmdb_enricher.py`
 - **Lanzar Web App (Desarrollo)**: `cd webapp && python3 app.py`
 

@@ -134,33 +134,24 @@ El paso 3 solo hace falta si en esa semana han entrado directores o actores que 
 
 ## Automatización con cron
 
-El script `run_update.sh` es el wrapper de cron y actualmente solo ejecuta el paso 1 (`update.py`). Para automatizar los tres pasos se puede ampliar así:
+`run_update.sh` ejecuta la descarga/parseo de taquilla, comprueba que estén
+presentes los dos informes del fin de semana esperado y después ejecuta el
+enriquecimiento TMDB. `run_update_if_needed.sh` hace el reintento de mediodía
+si falta alguno de los informes.
 
-```bash
-# run_update.sh ampliado
-#!/usr/bin/env bash
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-PYTHON="$SCRIPT_DIR/venv/bin/python3"
-
-# Paso 1: datos de taquilla
-"$PYTHON" update.py
-
-# Paso 2: enriquecimiento TMDB (solo títulos nuevos)
-"$PYTHON" tmdb_enricher.py --skip-existing
-
-# Paso 3: personas nuevas (solo las que faltan)
-"$PYTHON" tmdb_gente_importer.py --tipo director --skip-existing
-"$PYTHON" tmdb_gente_importer.py --tipo actor    --skip-existing
-```
-
-Configuración de cron recomendada (cada martes a las 10:00, cuando el Ministerio suele publicar los datos):
+Configuración instalada en el servidor (UTC):
 
 ```cron
-0 10 * * 2 /path/to/taquilla_app/run_update.sh >> /path/to/taquilla_app/logs/cron.log 2>&1
+30 5 * * 4 /home/sergio/taquilla_app/run_update.sh >> /home/sergio/taquilla_app/logs/cron.log 2>&1
+0 10 * * 4 /home/sergio/taquilla_app/run_update_if_needed.sh >> /home/sergio/taquilla_app/logs/cron.log 2>&1
+
+# Catálogo ICAA reciente: flujo independiente y diario
+0 6 * * * cd /home/sergio/taquilla_app && ./run_icaa_update.sh >> logs/ultimas_icaa.log 2>&1
 ```
+
+El cron diario ICAA ejecuta `icaa_ultimas_calificadas.py`,
+`icaa_downloader.py --latest` e `icaa_parser.py`. No forma parte del wrapper
+semanal de taquilla.
 
 ---
 

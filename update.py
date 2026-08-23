@@ -17,7 +17,7 @@ import logging.handlers
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg2
@@ -131,6 +131,21 @@ def already_processed(conn, filename: str) -> bool:
         return cur.fetchone() is not None
 
 
+def period_already_processed(conn, report_type, fecha_inicio, fecha_fin) -> bool:
+    """Avoid duplicate rows when the Ministry republishes a week under another name."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT 1
+            FROM processed_pdfs
+            WHERE report_type = %s
+              AND fecha_inicio = %s
+              AND fecha_fin = %s
+              AND rows_inserted > 0
+            LIMIT 1
+        """, (report_type, fecha_inicio, fecha_fin))
+        return cur.fetchone() is not None
+
+
 def record_processed(conn, filename, report_type, fecha_inicio, fecha_fin, rows_inserted, pdf_url=None):
     with conn.cursor() as cur:
         cur.execute("""
@@ -141,6 +156,48 @@ def record_processed(conn, filename, report_type, fecha_inicio, fecha_fin, rows_
                     processed_at  = NOW(),
                     pdf_url       = EXCLUDED.pdf_url
         """, (filename, report_type, fecha_inicio, fecha_fin, rows_inserted, pdf_url))
+
+
+def expected_weekend(today=None):
+    """Return the Friday-Sunday range expected by the weekly Thursday job."""
+    if today is None:
+        today = datetime.now().astimezone().date()
+    days_since_sunday = (today.weekday() - 6) % 7
+    if days_since_sunday == 0:
+        days_since_sunday = 7
+    date_end = today - timedelta(days=days_since_sunday)
+    return date_end - timedelta(days=2), date_end
+
+
+def current_week_loaded() -> bool:
+    """Check that both weekly reports exist for the latest completed weekend."""
+    date_start, date_end = expected_weekend()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT report_type
+                FROM processed_pdfs
+                WHERE fecha_inicio = %s
+                  AND fecha_fin = %s
+                  AND rows_inserted > 0
+                  AND report_type IN ('top25', 'topespanol')
+                GROUP BY report_type
+            """, (date_start, date_end))
+            loaded = {row[0] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    missing = {'top25', 'topespanol'} - loaded
+    if missing:
+        log.warning(
+            'Expected weekend %s – %s is incomplete; missing: %s',
+            date_start, date_end, ', '.join(sorted(missing)),
+        )
+        return False
+
+    log.info('Expected weekend %s – %s is loaded', date_start, date_end)
+    return True
 
 
 # ── insert helpers ────────────────────────────────────────────────────────────
@@ -278,6 +335,20 @@ def run(dry_run: bool = False):
                 stats['errors'] += 1
                 continue
 
+        # The Ministry sometimes republishes the same report with another
+        # filename. Record the alias, but do not duplicate that week's rows.
+        if conn and period_already_processed(
+            conn, report_type, date_start, date_end
+        ):
+            record_processed(
+                conn, stored_name, report_type, date_start, date_end, 0,
+                pdf_url=pdf_url,
+            )
+            conn.commit()
+            log.info('Duplicate period, recorded without rows: %s', stored_name)
+            stats['skipped'] += 1
+            continue
+
         # Parse PDF
         try:
             rows = parse_pdf(str(dest), report_type, date_start, date_end)
@@ -397,7 +468,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Weekly taquilla update')
     parser.add_argument('--dry-run', action='store_true',
                         help='Parse without writing to DB')
+    parser.add_argument('--check-current-week', action='store_true',
+                        help='Exit 0 only if both reports for the latest weekend are loaded')
     args = parser.parse_args()
 
-    success = run(dry_run=args.dry_run)
+    if args.check_current_week:
+        try:
+            success = current_week_loaded()
+        except Exception as exc:
+            log.error('Current-week check failed: %s', exc)
+            success = False
+    else:
+        success = run(dry_run=args.dry_run)
     sys.exit(0 if success else 1)

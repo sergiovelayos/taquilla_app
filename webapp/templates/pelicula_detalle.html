@@ -147,10 +147,12 @@
                             </div>
                             {% if director_tmdb.popularidad %}
                             <div class="small mt-1">
-                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle">
-                                    ⭐ {{ "%.1f"|format(director_tmdb.popularidad) }} popularidad TMDB
+                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle"
+                                      title="Índice dinámico de visibilidad en TMDB; no es una nota ni una escala de 0 a 10">
+                                    Popularidad TMDB: {{ "%.1f"|format(director_tmdb.popularidad) }}
                                 </span>
                             </div>
+                            <div class="text-muted mt-1" style="font-size:0.68rem;">Último índice de visibilidad sincronizado con TMDB; no es una valoración artística.</div>
                             {% endif %}
                         </div>
                     </div>
